@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: portal-postgres
+  namespace: wisave
+  labels:
+    app: portal-postgres
+spec:
+  type: ClusterIP
+  selector:
+    app: portal-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432

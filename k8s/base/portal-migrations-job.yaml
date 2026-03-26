@@ -1,0 +1,31 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: portal-migrations
+  namespace: wisave
+  labels:
+    app: portal-migrations
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: portal-migrations
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: portal-migrations
+          image: wisave-portal-migrations:latest
+          envFrom:
+            - configMapRef:
+                name: portal-config
+            - secretRef:
+                name: portal-secrets
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi

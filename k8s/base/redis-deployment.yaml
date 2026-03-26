@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portal-redis
+  namespace: wisave
+  labels:
+    app: portal-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: portal-redis
+  template:
+    metadata:
+      labels:
+        app: portal-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
