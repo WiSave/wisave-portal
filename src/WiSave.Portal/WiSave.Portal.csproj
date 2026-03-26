@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../WiSave.Portal.Migrations/WiSave.Portal.Migrations.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.5" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.0" />
+    <PackageReference Include="Scalar.AspNetCore" Version="2.13.13" />
+    <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
+  </ItemGroup>
+
+  <Target Name="RemoveLegacyEfBuildHostArtifacts" AfterTargets="Build;Clean">
+    <ItemGroup>
+      <LegacyEfBuildHostDirs Include="$(MSBuildProjectDirectory)/bin/$(Configuration)/$(TargetFramework)/BuildHost-net472" />
+      <LegacyEfBuildHostDirs Include="$(MSBuildProjectDirectory)/bin/$(Configuration)/$(TargetFramework)/BuildHost-netcore" />
+    </ItemGroup>
+
+    <RemoveDir Directories="@(LegacyEfBuildHostDirs)" />
+  </Target>
+</Project>
