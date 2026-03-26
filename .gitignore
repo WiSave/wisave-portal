@@ -1,0 +1,23 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## VS Code
+.vscode/
+
+## Rider
+.idea/
+
+## Claude Code
+.claude/
+
+## Superpowers
+.superpowers/
+
+## OS
+.DS_Store
+Thumbs.db
