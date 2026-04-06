@@ -17,6 +17,8 @@
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.0" />
     <PackageReference Include="Scalar.AspNetCore" Version="2.13.13" />
     <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
+    <PackageReference Include="MassTransit.RabbitMQ" Version="8.4.0" />
+    <PackageReference Include="WiSave.Expenses.Contracts" Version="0.1.0" />
   </ItemGroup>
 
   <Target Name="RemoveLegacyEfBuildHostArtifacts" AfterTargets="Build;Clean">

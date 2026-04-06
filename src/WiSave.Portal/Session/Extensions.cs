@@ -3,10 +3,9 @@ using Microsoft.Extensions.Caching.Distributed;
 
 namespace WiSave.Portal.Session;
 
-public static class SessionConfiguration
+public static class Extensions
 {
-    public static IServiceCollection AddPortalSession(
-        this IServiceCollection services,
+    public static IServiceCollection AddPortalSession(this IServiceCollection services,
         IConfiguration configuration)
     {
         var redisConnection = configuration["Redis:ConnectionString"];

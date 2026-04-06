@@ -1,6 +1,10 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
+# Copy local NuGet packages
+COPY local-packages/ /local-packages/
+RUN dotnet nuget add source /local-packages --name local
+
 # Copy both project files for restore
 COPY src/WiSave.Portal/WiSave.Portal.csproj src/WiSave.Portal/
 COPY src/WiSave.Portal.Migrations/WiSave.Portal.Migrations.csproj src/WiSave.Portal.Migrations/

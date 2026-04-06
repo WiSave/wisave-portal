@@ -1,10 +1,8 @@
 <Solution>
   <Project Path="src/WiSave.Portal/WiSave.Portal.csproj" />
+  <Project Path="src/WiSave.Portal.Console/WiSave.Portal.Console.csproj" />
   <Folder Name="/Solution Items/">
     <File Path="docker-compose.yml" />
-  </Folder>
-  <Folder Name="/Solution Items/scripts/">
-    <File Path="scripts\generate-dbup-script.sh" />
   </Folder>
   <Project Path="src/WiSave.Portal.Migrations/WiSave.Portal.Migrations.csproj" />
   <Project Path="tests/WiSave.Portal.Tests/WiSave.Portal.Tests.csproj" />

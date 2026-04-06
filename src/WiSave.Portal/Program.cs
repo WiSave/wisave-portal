@@ -2,6 +2,8 @@ using WiSave.Portal.Auth;
 using WiSave.Portal.Authorization;
 using WiSave.Portal.Endpoints;
 using WiSave.Portal.Gateway;
+using WiSave.Portal.Hubs;
+using WiSave.Portal.Messaging;
 using WiSave.Portal.Session;
 using WiSave.Portal.Migrations;
 using Scalar.AspNetCore;
@@ -11,6 +13,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddPortalIdentity(builder.Configuration);
 builder.Services.AddPortalSession(builder.Configuration);
 builder.Services.AddPortalGateway(builder.Configuration);
+builder.Services.AddPortalSignalR();
+builder.Services.AddPortalMessaging(builder.Configuration);
 
 builder.Services.AddSingleton<UserPlanCache>();
 builder.Services.AddSingleton<PlanPermissionCache>();
@@ -68,12 +72,13 @@ app.UseMiddleware<PermissionResolutionMiddleware>();
 app.UseAntiforgery();
 
 app.MapAuthEndpoints();
+app.MapPortalHubs();
 
 app.MapReverseProxy(proxyPipeline =>
 {
     proxyPipeline.Use(async (context, next) =>
     {
-        var unsafeMethods = new[] { "POST", "PUT", "DELETE", "PATCH" };
+        string[] unsafeMethods = ["POST", "PUT", "DELETE", "PATCH"];
         if (unsafeMethods.Contains(context.Request.Method, StringComparer.OrdinalIgnoreCase))
         {
             var antiforgery = context.RequestServices.GetRequiredService<Microsoft.AspNetCore.Antiforgery.IAntiforgery>();

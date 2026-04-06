@@ -5,18 +5,15 @@ using WiSave.Portal.Infrastructure.Database;
 
 namespace WiSave.Portal.Auth;
 
-public static class IdentityConfiguration
+public static class Extensions
 {
-    public static IServiceCollection AddPortalIdentity(
-        this IServiceCollection services,
-        IConfiguration configuration)
+    public static IServiceCollection AddPortalIdentity(this IServiceCollection services, IConfiguration configuration)
     {
         var useInMemory = configuration.GetValue<bool>("UseInMemoryDatabase");
         if (useInMemory)
         {
             var dbName = configuration["InMemoryDatabaseName"] ?? "WiSave_Test";
-            services.AddDbContext<PortalDbContext>(options =>
-                options.UseInMemoryDatabase(dbName));
+            services.AddDbContext<PortalDbContext>(options => options.UseInMemoryDatabase(dbName));
         }
         else
         {
@@ -41,8 +38,7 @@ public static class IdentityConfiguration
             options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
             options.ExpireTimeSpan = TimeSpan.FromDays(14);
             options.SlidingExpiration = true;
-
-            // Return 401 instead of redirecting to a login page (API behavior)
+            
             options.Events.OnRedirectToLogin = context =>
             {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
