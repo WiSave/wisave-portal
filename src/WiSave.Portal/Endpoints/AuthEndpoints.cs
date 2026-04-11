@@ -3,9 +3,27 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using WiSave.Portal.Auth.Models;
+using WiSave.Portal.Authorization;
 using WiSave.Portal.Infrastructure.Database;
 
 namespace WiSave.Portal.Endpoints;
+
+internal sealed class AntiforgeryValidationFilter : IEndpointFilter
+{
+    public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    {
+        var antiforgery = context.HttpContext.RequestServices.GetRequiredService<IAntiforgery>();
+        try
+        {
+            await antiforgery.ValidateRequestAsync(context.HttpContext);
+        }
+        catch (AntiforgeryValidationException)
+        {
+            return Results.BadRequest("Antiforgery token validation failed.");
+        }
+        return await next(context);
+    }
+}
 
 public static class AuthEndpoints
 {
@@ -15,13 +33,15 @@ public static class AuthEndpoints
             .WithTags("Auth");
 
         group.MapPost("/register", Register)
-            .DisableAntiforgery()
+            .AddEndpointFilter<AntiforgeryValidationFilter>()
+            .RequireRateLimiting("auth-register")
             .Produces<AuthResponse>()
             .ProducesValidationProblem()
             .WithSummary("Register a new user account");
 
         group.MapPost("/login", Login)
-            .DisableAntiforgery()
+            .AddEndpointFilter<AntiforgeryValidationFilter>()
+            .RequireRateLimiting("auth-login")
             .Produces<AuthResponse>()
             .Produces(401)
             .WithSummary("Authenticate with email and password");
@@ -39,12 +59,12 @@ public static class AuthEndpoints
 
         group.MapGet("/antiforgery-token", (IAntiforgery antiforgery, HttpContext context) =>
         {
-            antiforgery.GetAndStoreTokens(context);
+            SetXsrfTokenCookie(antiforgery, context);
             return Results.Ok();
         })
-            .RequireAuthorization()
+            .AllowAnonymous()
             .Produces(200)
-            .WithSummary("Get XSRF token cookie");
+            .WithSummary("Get XSRF token cookie and request token");
     }
 
     private static async Task<IResult> Register(
@@ -53,7 +73,9 @@ public static class AuthEndpoints
         SignInManager<ApplicationUser> signInManager,
         IAntiforgery antiforgery,
         HttpContext context,
-        PortalDbContext db)
+        PortalDbContext db,
+        UserPlanCache userPlanCache,
+        PlanPermissionCache planPermissionCache)
     {
         var planId = string.IsNullOrWhiteSpace(request.PlanId) ? "free" : request.PlanId;
         var planExists = await db.Plans.AnyAsync(p => p.Id == planId && p.IsActive);
@@ -78,12 +100,13 @@ public static class AuthEndpoints
         }
 
         await userManager.AddToRoleAsync(user, "user");
-        
-        await signInManager.SignInAsync(user, isPersistent: true);
-        
-        antiforgery.GetAndStoreTokens(context);
 
-        var response = new AuthResponse(new UserResponse(user.Id, user.Name, user.Email));
+        await signInManager.SignInAsync(user, isPersistent: true);
+
+        SetXsrfTokenCookie(antiforgery, context);
+
+        var permissions = await ResolvePermissionsAsync(user.Id, userManager, userPlanCache, planPermissionCache);
+        var response = new AuthResponse(new UserResponse(user.Id, user.Name, user.Email, permissions));
         return Results.Ok(response);
     }
 
@@ -92,7 +115,9 @@ public static class AuthEndpoints
         UserManager<ApplicationUser> userManager,
         SignInManager<ApplicationUser> signInManager,
         IAntiforgery antiforgery,
-        HttpContext context)
+        HttpContext context,
+        UserPlanCache userPlanCache,
+        PlanPermissionCache planPermissionCache)
     {
         var user = await userManager.FindByEmailAsync(request.Email);
 
@@ -102,16 +127,17 @@ public static class AuthEndpoints
         }
 
         var result = await signInManager.PasswordSignInAsync(
-            user, request.Password, isPersistent: true, lockoutOnFailure: false);
+            user, request.Password, isPersistent: true, lockoutOnFailure: true);
 
-        if (!result.Succeeded)
+        if (result.IsLockedOut || !result.Succeeded)
         {
             return Results.Unauthorized();
         }
-        
-        antiforgery.GetAndStoreTokens(context);
 
-        var response = new AuthResponse(new UserResponse(user.Id, user.Name, user.Email));
+        SetXsrfTokenCookie(antiforgery, context);
+
+        var permissions = await ResolvePermissionsAsync(user.Id, userManager, userPlanCache, planPermissionCache);
+        var response = new AuthResponse(new UserResponse(user.Id, user.Name, user.Email, permissions));
         return Results.Ok(response);
     }
 
@@ -123,7 +149,9 @@ public static class AuthEndpoints
 
     private static async Task<IResult> Me(
         HttpContext context,
-        UserManager<ApplicationUser> userManager)
+        UserManager<ApplicationUser> userManager,
+        UserPlanCache userPlanCache,
+        PlanPermissionCache planPermissionCache)
     {
         var userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
 
@@ -139,7 +167,46 @@ public static class AuthEndpoints
             return Results.Unauthorized();
         }
 
-        var response = new UserResponse(user.Id, user.Name, user.Email!);
+        var permissions = await ResolvePermissionsAsync(user.Id, userManager, userPlanCache, planPermissionCache);
+        var response = new UserResponse(user.Id, user.Name, user.Email!, permissions);
         return Results.Ok(response);
+    }
+
+    /// <summary>
+    /// Calls GetAndStoreTokens (sets the HttpOnly antiforgery cookie) and then
+    /// writes a separate non-HttpOnly XSRF-TOKEN cookie containing the request token.
+    /// Angular's withXsrfConfiguration reads this cookie and sends its value as
+    /// the X-XSRF-TOKEN header on subsequent requests.
+    /// </summary>
+    private static void SetXsrfTokenCookie(IAntiforgery antiforgery, HttpContext context)
+    {
+        var tokens = antiforgery.GetAndStoreTokens(context);
+        context.Response.Cookies.Append("XSRF-TOKEN", tokens.RequestToken!, new CookieOptions
+        {
+            HttpOnly = false,
+            SameSite = SameSiteMode.Lax,
+            Secure = context.Request.IsHttps,
+            Path = "/",
+        });
+    }
+
+    private static async Task<string[]> ResolvePermissionsAsync(
+        string userId,
+        UserManager<ApplicationUser> userManager,
+        UserPlanCache userPlanCache,
+        PlanPermissionCache planPermissionCache)
+    {
+        var user = await userManager.FindByIdAsync(userId);
+        if (user is null) return [];
+
+        var roles = await userManager.GetRolesAsync(user);
+        if (roles.Any(r => r is "superadmin" or "admin"))
+            return ["*"];
+
+        var planId = await userPlanCache.GetPlanIdAsync(userId);
+        if (planId is null) return [];
+
+        var permissions = await planPermissionCache.GetPermissionsAsync(planId);
+        return [.. permissions];
     }
 }

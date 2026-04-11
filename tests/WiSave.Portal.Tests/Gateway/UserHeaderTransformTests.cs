@@ -42,7 +42,7 @@ public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : 
 
     public async ValueTask DisposeAsync()
     {
-        _factory.Dispose();
+        await _factory.DisposeAsync();
         await _downstream.DisposeAsync();
     }
 
@@ -66,12 +66,31 @@ public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : 
             );
             await db.SaveChangesAsync();
         }
+
+        if (!await db.Permissions.AnyAsync())
+        {
+            var incomesRead = new WiSave.Portal.Auth.Models.Permission
+            {
+                Id = Guid.Parse("a1000000-0000-0000-0000-000000000001"),
+                Name = "incomes:read",
+                Description = "View incomes"
+            };
+            db.Permissions.Add(incomesRead);
+            await db.SaveChangesAsync();
+
+            db.PlanPermissions.Add(new WiSave.Portal.Auth.Models.PlanPermission
+            {
+                PlanId = "free",
+                PermissionId = incomesRead.Id
+            });
+            await db.SaveChangesAsync();
+        }
     }
 
     [Fact]
     public async Task ProxiedRequest_Authenticated_ForwardsIdentityHeaders()
     {
-        var client = CreateClient(handleCookies: true);
+        var client = CreateClientWithCookies();
         var auth = await RegisterAsync(client, "Proxy User", "proxy@example.com");
 
         var response = await client.GetAsync("/api/incomes", TestContext.Current.CancellationToken);
@@ -97,7 +116,7 @@ public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : 
     [Fact]
     public async Task ProxiedRequest_ClientSpoofedHeaders_AreOverwritten()
     {
-        var client = CreateClient(handleCookies: true);
+        var client = CreateClientWithCookies();
         var auth = await RegisterAsync(client, "Spoof User", "spoof@example.com");
 
         var request = new HttpRequestMessage(HttpMethod.Get, "/api/incomes");
@@ -116,16 +135,36 @@ public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : 
         Assert.Equal("user", GetHeaderValue(forwarded, "X-User-Roles"));
     }
 
-    private HttpClient CreateClient(bool handleCookies = false) =>
-        _factory.CreateClient(new WebApplicationFactoryClientOptions
+    // Creates an HttpClient backed by a CookieContainer (via CookieDelegatingHandler) so
+    // that session cookies are sent on every request for authenticated flows.
+    private HttpClient CreateClientWithCookies()
+    {
+        var cookieContainer = new System.Net.CookieContainer();
+        var handler = new CookieDelegatingHandler(cookieContainer, _factory.Server.CreateHandler());
+        return new HttpClient(handler)
         {
-            HandleCookies = handleCookies
-        });
+            BaseAddress = new Uri("https://localhost"),
+        };
+    }
+
+    private static async Task<string> GetAntiforgeryTokenAsync(HttpClient client)
+    {
+        var response = await client.GetAsync("/api/auth/antiforgery-token", CancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        var xsrfCookie = response.Headers.GetValues("Set-Cookie")
+            .First(c => c.StartsWith("XSRF-TOKEN="));
+        return Uri.UnescapeDataString(xsrfCookie.Split('=', 2)[1].Split(';')[0]);
+    }
 
     private static async Task<AuthResponse> RegisterAsync(HttpClient client, string name, string email)
     {
+        var token = await GetAntiforgeryTokenAsync(client);
         var request = new RegisterRequest(name, email, "Password123!", "free");
-        var response = await client.PostAsJsonAsync("/api/auth/register", request, CancellationToken);
+        var message = new HttpRequestMessage(HttpMethod.Post, "/api/auth/register");
+        message.Headers.Add("X-XSRF-TOKEN", token);
+        message.Content = JsonContent.Create(request);
+        var response = await client.SendAsync(message, CancellationToken);
         response.EnsureSuccessStatusCode();
 
         return (await response.Content.ReadFromJsonAsync<AuthResponse>(CancellationToken))!;
@@ -138,6 +177,33 @@ public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : 
     }
 
     private sealed record ForwardedRequest(string Path, Dictionary<string, string[]> Headers);
+
+    // Delegating handler that manages a cookie container, forwarding cookies on requests
+    // and storing cookies from responses — while leaving Set-Cookie headers visible in the response.
+    private sealed class CookieDelegatingHandler(System.Net.CookieContainer cookieContainer, HttpMessageHandler inner)
+        : DelegatingHandler(inner)
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var cookieHeader = cookieContainer.GetCookieHeader(request.RequestUri!);
+            if (!string.IsNullOrEmpty(cookieHeader))
+                request.Headers.TryAddWithoutValidation("Cookie", cookieHeader);
+
+            var response = await base.SendAsync(request, cancellationToken);
+
+            if (response.Headers.TryGetValues("Set-Cookie", out var setCookieHeaders))
+            {
+                foreach (var setCookie in setCookieHeaders)
+                {
+                    try { cookieContainer.SetCookies(request.RequestUri!, setCookie); }
+                    catch (System.Net.CookieException) { /* ignore malformed cookies */ }
+                }
+            }
+
+            return response;
+        }
+    }
 
     private sealed class DownstreamEchoServer : IAsyncDisposable
     {

@@ -7,7 +7,7 @@ namespace WiSave.Portal.Auth;
 
 public static class Extensions
 {
-    public static IServiceCollection AddPortalIdentity(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddPortalIdentity(this IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
     {
         var useInMemory = configuration.GetValue<bool>("UseInMemoryDatabase");
         if (useInMemory)
@@ -26,6 +26,8 @@ public static class Extensions
                 options.User.RequireUniqueEmail = true;
                 options.Password.RequiredLength = 8;
                 options.SignIn.RequireConfirmedAccount = false;
+                options.Lockout.MaxFailedAccessAttempts = 5;
+                options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
             })
             .AddEntityFrameworkStores<PortalDbContext>()
             .AddDefaultTokenProviders();
@@ -35,7 +37,9 @@ public static class Extensions
             options.Cookie.Name = "WiSave.Session";
             options.Cookie.HttpOnly = true;
             options.Cookie.SameSite = SameSiteMode.Lax;
-            options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+            options.Cookie.SecurePolicy = environment.IsDevelopment()
+                ? CookieSecurePolicy.SameAsRequest
+                : CookieSecurePolicy.Always;
             options.ExpireTimeSpan = TimeSpan.FromDays(14);
             options.SlidingExpiration = true;
             

@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
 using WiSave.Portal.Auth;
 using WiSave.Portal.Authorization;
 using WiSave.Portal.Endpoints;
@@ -10,7 +12,7 @@ using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddPortalIdentity(builder.Configuration);
+builder.Services.AddPortalIdentity(builder.Configuration, builder.Environment);
 builder.Services.AddPortalSession(builder.Configuration);
 builder.Services.AddPortalGateway(builder.Configuration);
 builder.Services.AddPortalSignalR();
@@ -20,13 +22,19 @@ builder.Services.AddSingleton<UserPlanCache>();
 builder.Services.AddSingleton<PlanPermissionCache>();
 
 builder.Services.AddOpenApi();
-builder.Services.AddAuthorization();
+builder.Services.AddPermissionPolicies();
 builder.Services.AddAntiforgery(options =>
 {
     options.HeaderName = "X-XSRF-TOKEN";
-    options.Cookie.Name = "XSRF-TOKEN";
-    options.Cookie.HttpOnly = false;
+    // The system's own cookie stores the cookie token (HttpOnly).
+    // A separate XSRF-TOKEN cookie with the request token is set manually
+    // after GetAndStoreTokens() for Angular's XSRF interceptor to read.
+    options.Cookie.Name = ".AspNetCore.Antiforgery";
+    options.Cookie.HttpOnly = true;
     options.Cookie.SameSite = SameSiteMode.Lax;
+    options.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
+        ? CookieSecurePolicy.SameAsRequest
+        : CookieSecurePolicy.Always;
 });
 
 var corsOrigins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? [];
@@ -43,6 +51,25 @@ if (corsOrigins.Length > 0)
         });
     });
 }
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    options.AddFixedWindowLimiter("auth-login", opt =>
+    {
+        opt.PermitLimit = 10;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 0;
+    });
+
+    options.AddFixedWindowLimiter("auth-register", opt =>
+    {
+        opt.PermitLimit = 5;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 0;
+    });
+});
 
 var app = builder.Build();
 
@@ -66,9 +93,19 @@ if (corsOrigins.Length > 0)
     app.UseCors();
 }
 
+if (!app.Environment.IsDevelopment())
+{
+    app.UseForwardedHeaders(new ForwardedHeadersOptions
+    {
+        ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+    });
+}
+
+app.UseRateLimiter();
+
 app.UseAuthentication();
-app.UseAuthorization();
 app.UseMiddleware<PermissionResolutionMiddleware>();
+app.UseAuthorization();
 app.UseAntiforgery();
 
 app.MapAuthEndpoints();

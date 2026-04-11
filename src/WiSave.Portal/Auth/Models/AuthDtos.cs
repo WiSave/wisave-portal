@@ -4,6 +4,6 @@ public record LoginRequest(string Email, string Password);
 
 public record RegisterRequest(string Name, string Email, string Password, string PlanId);
 
-public record UserResponse(string Id, string Name, string Email);
+public record UserResponse(string Id, string Name, string Email, string[] Permissions);
 
 public record AuthResponse(UserResponse User);
