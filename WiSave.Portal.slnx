@@ -2,6 +2,7 @@
   <Project Path="src/WiSave.Portal/WiSave.Portal.csproj" />
   <Project Path="src/WiSave.Portal.Console/WiSave.Portal.Console.csproj" />
   <Folder Name="/Solution Items/">
+    <File Path="CLAUDE.md" />
     <File Path="docker-compose.yml" />
   </Folder>
   <Project Path="src/WiSave.Portal.Migrations/WiSave.Portal.Migrations.csproj" />
