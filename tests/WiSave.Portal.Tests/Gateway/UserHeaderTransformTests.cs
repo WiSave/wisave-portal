@@ -135,6 +135,38 @@ public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : 
         Assert.Equal("user", GetHeaderValue(forwarded, "X-User-Roles"));
     }
 
+    [Fact]
+    public async Task UnsafeProxyRequest_WithoutAntiforgeryToken_Returns400()
+    {
+        var client = CreateClientWithCookies();
+        await RegisterAsync(client, "Proxy Post User", "proxy-post@example.com");
+
+        var response = await client.PostAsJsonAsync("/api/incomes", new { name = "Test" }, CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UnsafeProxyRequest_WithAntiforgeryToken_ForwardsRequest()
+    {
+        var client = CreateClientWithCookies();
+        await RegisterAsync(client, "Proxy Post User", "proxy-post-ok@example.com");
+
+        var token = await GetAntiforgeryTokenAsync(client);
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/incomes")
+        {
+            Content = JsonContent.Create(new { name = "Test" })
+        };
+        request.Headers.Add("X-XSRF-TOKEN", token);
+
+        var response = await client.SendAsync(request, CancellationToken);
+        var forwarded = await response.Content.ReadFromJsonAsync<ForwardedRequest>(CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(forwarded);
+        Assert.Equal("/incomes", forwarded.Path);
+    }
+
     // Creates an HttpClient backed by a CookieContainer (via CookieDelegatingHandler) so
     // that session cookies are sent on every request for authenticated flows.
     private HttpClient CreateClientWithCookies()
@@ -180,7 +212,7 @@ public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : 
 
     // Delegating handler that manages a cookie container, forwarding cookies on requests
     // and storing cookies from responses — while leaving Set-Cookie headers visible in the response.
-    private sealed class CookieDelegatingHandler(System.Net.CookieContainer cookieContainer, HttpMessageHandler inner)
+    private sealed class CookieDelegatingHandler(CookieContainer cookieContainer, HttpMessageHandler inner)
         : DelegatingHandler(inner)
     {
         protected override async Task<HttpResponseMessage> SendAsync(
@@ -197,7 +229,7 @@ public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : 
                 foreach (var setCookie in setCookieHeaders)
                 {
                     try { cookieContainer.SetCookies(request.RequestUri!, setCookie); }
-                    catch (System.Net.CookieException) { /* ignore malformed cookies */ }
+                    catch (CookieException) { /* ignore malformed cookies */ }
                 }
             }
 

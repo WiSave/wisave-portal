@@ -282,6 +282,35 @@ public class AuthEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
+    [Fact]
+    public async Task AntiforgeryToken_SetsReadableXsrfCookie()
+    {
+        var client = CreateClient();
+
+        var response = await client.GetAsync("/api/auth/antiforgery-token", CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains(response.Headers.GetValues("Set-Cookie"), c => c.StartsWith("XSRF-TOKEN="));
+    }
+
+    [Fact]
+    public async Task Login_ValidCredentials_RefreshesXsrfCookie()
+    {
+        var client = CreateClient();
+        await RegisterAsync(client, new RegisterRequest("Token User", "token@example.com", "Password123!", "free"));
+
+        var logoutResponse = await PostWithAntiforgeryAsync(client, "/api/auth/logout", new { });
+        Assert.Equal(HttpStatusCode.NoContent, logoutResponse.StatusCode);
+
+        var response = await PostWithAntiforgeryAsync(
+            client,
+            "/api/auth/login",
+            new LoginRequest("token@example.com", "Password123!"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains(response.Headers.GetValues("Set-Cookie"), c => c.StartsWith("XSRF-TOKEN="));
+    }
+
     // Creates an HttpClient backed by a CookieContainer (via CookieDelegatingHandler) so
     // that session cookies are sent on every request for authenticated flows.
     private HttpClient CreateClient(bool handleCookies = true)
