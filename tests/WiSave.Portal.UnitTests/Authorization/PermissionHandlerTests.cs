@@ -4,7 +4,7 @@ using WiSave.Portal.Contracts.Authorization;
 using WiSave.Portal.Authorization;
 using Xunit;
 
-namespace WiSave.Portal.Tests.Authorization;
+namespace WiSave.Portal.UnitTests.Authorization;
 
 public class PermissionHandlerTests
 {
