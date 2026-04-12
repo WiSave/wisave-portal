@@ -17,7 +17,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     env:
-      NuGetPackageSourceCredentials_github: Username=${{ github.repository_owner }};Password=${{ secrets.GITHUB_PACKAGES_READ_TOKEN }}
+      PACKAGES_USERNAME: ${{ github.repository_owner }}
+      PACKAGES_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
 
     steps:
       - name: Checkout repository
@@ -28,7 +29,17 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Validate GitHub Packages credentials
+        shell: bash
+        run: |
+          if [ -z "${PACKAGES_TOKEN}" ]; then
+            echo "::error title=Missing GitHub Packages token::Repository secret PACKAGES_READ_TOKEN is not set."
+            exit 1
+          fi
+
       - name: Restore solution
+        env:
+          NuGetPackageSourceCredentials_github: Username=${{ env.PACKAGES_USERNAME }};Password=${{ env.PACKAGES_TOKEN }}
         run: dotnet restore WiSave.Portal.slnx --configfile NuGet.Config
 
       - name: Run portal tests
