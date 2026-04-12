@@ -42,8 +42,8 @@ jobs:
           NuGetPackageSourceCredentials_github: Username=${{ env.PACKAGES_USERNAME }};Password=${{ env.PACKAGES_TOKEN }}
         run: dotnet restore WiSave.Portal.slnx --configfile NuGet.Config
 
-      - name: Run portal tests
-        run: dotnet test tests/WiSave.Portal.Tests/WiSave.Portal.Tests.csproj --configuration Release --no-restore
+      - name: Run portal unit tests
+        run: dotnet test tests/WiSave.Portal.UnitTests/WiSave.Portal.UnitTests.csproj --configuration Release --no-restore
 
       - name: Compute package version
         id: version
