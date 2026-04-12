@@ -13,6 +13,8 @@ public class PortalDbContext(DbContextOptions<PortalDbContext> options) : Identi
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+        builder.HasDefaultSchema("public");
+        
 
         builder.Entity<Plan>(e =>
         {

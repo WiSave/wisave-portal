@@ -10,6 +10,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__Portal=Host=postgres;Database=wisave_portal;Username=wisave;Password=wisave_dev
@@ -18,6 +20,11 @@ services:
       - Cors__Origins__0=http://localhost:4200
       - ReverseProxy__Clusters__incomes-cluster__Destinations__destination1__Address=http://wisave-incomes:8080
       - ReverseProxy__Clusters__stocks-cluster__Destinations__destination1__Address=http://wisave-stocks:8080
+      - ReverseProxy__Clusters__expenses-cluster__Destinations__destination1__Address=http://wisave-expenses-webapi:8080
+      - RabbitMq__Host=rabbitmq
+      - RabbitMq__VirtualHost=expenses
+      - RabbitMq__Username=guest
+      - RabbitMq__Password=guest
 
   postgres:
     image: postgres:17
@@ -40,5 +47,27 @@ services:
     ports:
       - "6379:6379"
 
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS=-rabbitmq_management load_definitions "/etc/rabbitmq/definitions.json"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./infrastructure/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics check_port_connectivity"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
 volumes:
   portal-db:
+  rabbitmq-data:
+
+networks:
+  default:
+    external: true
+    name: wisave-net

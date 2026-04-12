@@ -18,6 +18,10 @@ obj/
 ## Superpowers
 .superpowers/
 
+## Graphify
+.graphify*
+graphify-out/
+
 ## OS
 .DS_Store
 Thumbs.db

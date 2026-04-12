@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PackageId>WiSave.Portal.Contracts</PackageId>
+    <VersionPrefix>0.1</VersionPrefix>
+    <Authors>JacobChwastek</Authors>
+    <Description>Shared transport and integration contracts for WiSave.Portal and downstream services.</Description>
+    <RepositoryUrl>https://github.com/JacobChwastek/wisave.portal</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/JacobChwastek/wisave.portal</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>wisave;portal;contracts;auth;identity</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="MassTransit.Abstractions" Version="8.5.8" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>
