@@ -22,11 +22,15 @@ public class NotificationConsumer(IHubContext<NotificationsHub> hub) :
     IConsumer<CategoryLimitRemoved>,
     IConsumer<CommandFailed>
 {
-    public Task Consume(ConsumeContext<AccountOpened> context) =>
-        Push(context.Message.UserId, nameof(AccountOpened), context.Message, context.CancellationToken);
+    public Task Consume(ConsumeContext<AccountOpened> context)
+    {
+        return Push(context.Message.UserId, nameof(AccountOpened), context.Message, context.CancellationToken);
+    }
 
-    public Task Consume(ConsumeContext<AccountUpdated> context) =>
-        Push(context.Message.UserId, nameof(AccountUpdated), context.Message, context.CancellationToken);
+    public Task Consume(ConsumeContext<AccountUpdated> context)
+    {
+        return Push(context.Message.UserId, nameof(AccountUpdated), context.Message, context.CancellationToken);
+    }
 
     public Task Consume(ConsumeContext<AccountClosed> context) =>
         Push(context.Message.UserId, nameof(AccountClosed), context.Message, context.CancellationToken);

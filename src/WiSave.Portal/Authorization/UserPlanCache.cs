@@ -4,27 +4,18 @@ using Microsoft.EntityFrameworkCore;
 
 namespace WiSave.Portal.Authorization;
 
-public class UserPlanCache
+public class UserPlanCache(IDistributedCache cache, IServiceScopeFactory scopeFactory)
 {
     private const string KeyPrefix = "user:plan:";
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(1);
 
-    private readonly IDistributedCache _cache;
-    private readonly IServiceScopeFactory _scopeFactory;
-
-    public UserPlanCache(IDistributedCache cache, IServiceScopeFactory scopeFactory)
-    {
-        _cache = cache;
-        _scopeFactory = scopeFactory;
-    }
-
     public async Task<string?> GetPlanIdAsync(string userId)
     {
-        var cached = await _cache.GetStringAsync(KeyPrefix + userId);
+        var cached = await cache.GetStringAsync(KeyPrefix + userId);
         if (cached is not null)
             return cached;
 
-        using var scope = _scopeFactory.CreateScope();
+        using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<PortalDbContext>();
 
         var planId = await db.Users
@@ -34,7 +25,7 @@ public class UserPlanCache
 
         if (planId is not null)
         {
-            await _cache.SetStringAsync(KeyPrefix + userId, planId, new DistributedCacheEntryOptions
+            await cache.SetStringAsync(KeyPrefix + userId, planId, new DistributedCacheEntryOptions
             {
                 AbsoluteExpirationRelativeToNow = CacheTtl
             });
@@ -45,6 +36,6 @@ public class UserPlanCache
 
     public async Task InvalidateAsync(string userId)
     {
-        await _cache.RemoveAsync(KeyPrefix + userId);
+        await cache.RemoveAsync(KeyPrefix + userId);
     }
 }
