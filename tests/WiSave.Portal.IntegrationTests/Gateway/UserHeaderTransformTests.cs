@@ -15,7 +15,7 @@ using WiSave.Portal.Contracts.Authorization;
 using WiSave.Portal.Contracts.Identity;
 using Xunit;
 
-namespace WiSave.Portal.Tests.Gateway;
+namespace WiSave.Portal.IntegrationTests.Gateway;
 
 public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>, IAsyncLifetime
 {

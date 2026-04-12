@@ -1,0 +1,48 @@
+name: Validate WiSave.Portal
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: portal-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      PACKAGES_USERNAME: ${{ github.repository_owner }}
+      PACKAGES_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Validate GitHub Packages credentials
+        shell: bash
+        run: |
+          if [ -z "${PACKAGES_TOKEN}" ]; then
+            echo "::error title=Missing GitHub Packages token::Repository secret PACKAGES_READ_TOKEN is not set."
+            exit 1
+          fi
+
+      - name: Restore solution
+        env:
+          NuGetPackageSourceCredentials_github: Username=${{ env.PACKAGES_USERNAME }};Password=${{ env.PACKAGES_TOKEN }}
+        run: dotnet restore WiSave.Portal.slnx --configfile NuGet.Config
+
+      - name: Run portal unit tests
+        run: dotnet test tests/WiSave.Portal.UnitTests/WiSave.Portal.UnitTests.csproj --configuration Release --no-restore
+
+      - name: Run portal integration tests
+        run: dotnet test tests/WiSave.Portal.IntegrationTests/WiSave.Portal.IntegrationTests.csproj --configuration Release --no-restore

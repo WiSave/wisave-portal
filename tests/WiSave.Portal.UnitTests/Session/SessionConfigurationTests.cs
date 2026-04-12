@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 using WiSave.Portal.Session;
 using Xunit;
 
-namespace WiSave.Portal.Tests.Session;
+namespace WiSave.Portal.UnitTests.Session;
 
 public class SessionConfigurationTests
 {
@@ -65,6 +65,24 @@ public class SessionConfigurationTests
         services.AddPortalSession(configuration);
 
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IDataProtectionProvider));
+        Assert.Contains(services, descriptor => descriptor.ServiceType.FullName == "StackExchange.Redis.IConnectionMultiplexer");
+    }
+
+    [Fact]
+    public void AddPortalSession_WithUnavailableRedis_DoesNotConnectDuringRegistration()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Redis:ConnectionString"] = "127.0.0.1:6399,connectTimeout=100,connectRetry=0",
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+
+        var exception = Record.Exception(() => services.AddPortalSession(configuration));
+
+        Assert.Null(exception);
         Assert.Contains(services, descriptor => descriptor.ServiceType.FullName == "StackExchange.Redis.IConnectionMultiplexer");
     }
 }
