@@ -16,7 +16,7 @@ using WiSave.Expenses.Contracts.Models;
 using WiSave.Portal.Auth.Models;
 using Xunit;
 
-namespace WiSave.Portal.Tests.Messaging;
+namespace WiSave.Portal.IntegrationTests.Messaging;
 
 public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>>, IAsyncLifetime
 {

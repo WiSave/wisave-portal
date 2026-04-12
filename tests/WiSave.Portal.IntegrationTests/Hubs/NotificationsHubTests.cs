@@ -9,7 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using WiSave.Portal.Auth.Models;
 using Xunit;
 
-namespace WiSave.Portal.Tests.Hubs;
+namespace WiSave.Portal.IntegrationTests.Hubs;
 
 public class NotificationsHubTests : IClassFixture<WebApplicationFactory<Program>>, IAsyncLifetime
 {

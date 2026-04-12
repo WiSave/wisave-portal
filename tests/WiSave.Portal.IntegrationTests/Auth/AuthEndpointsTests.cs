@@ -10,7 +10,7 @@ using WiSave.Portal.Auth.Models;
 using WiSave.Portal.Contracts.Authorization;
 using Xunit;
 
-namespace WiSave.Portal.Tests.Auth;
+namespace WiSave.Portal.IntegrationTests.Auth;
 
 public class AuthEndpointsTests : IClassFixture<WebApplicationFactory<Program>>, IAsyncLifetime
 {
