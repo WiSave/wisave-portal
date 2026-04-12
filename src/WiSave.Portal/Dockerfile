@@ -1,14 +1,16 @@
+## syntax=docker/dockerfile:1.7
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-# Copy local NuGet packages
-COPY local-packages/ /local-packages/
-RUN dotnet nuget add source /local-packages --name local
+ARG GITHUB_PACKAGES_USERNAME=JacobChwastek
 
-# Copy both project files for restore
+COPY NuGet.Config ./
 COPY src/WiSave.Portal/WiSave.Portal.csproj src/WiSave.Portal/
+COPY src/WiSave.Portal.Contracts/WiSave.Portal.Contracts.csproj src/WiSave.Portal.Contracts/
 COPY src/WiSave.Portal.Migrations/WiSave.Portal.Migrations.csproj src/WiSave.Portal.Migrations/
-RUN dotnet restore src/WiSave.Portal/WiSave.Portal.csproj
+RUN --mount=type=secret,id=github_packages_token \
+    export NuGetPackageSourceCredentials_github="Username=${GITHUB_PACKAGES_USERNAME};Password=$(cat /run/secrets/github_packages_token)" && \
+    dotnet restore src/WiSave.Portal/WiSave.Portal.csproj --configfile NuGet.Config
 
 # Copy everything and publish
 COPY src/ src/

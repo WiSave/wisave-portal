@@ -16,6 +16,8 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      NuGetPackageSourceCredentials_github: Username=${{ github.repository_owner }};Password=${{ secrets.GITHUB_PACKAGES_READ_TOKEN }}
 
     steps:
       - name: Checkout repository
@@ -27,7 +29,7 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Restore solution
-        run: dotnet restore WiSave.Portal.slnx
+        run: dotnet restore WiSave.Portal.slnx --configfile NuGet.Config
 
       - name: Run portal tests
         run: dotnet test tests/WiSave.Portal.Tests/WiSave.Portal.Tests.csproj --configuration Release --no-restore
