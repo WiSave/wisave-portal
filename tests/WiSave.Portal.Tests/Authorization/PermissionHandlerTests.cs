@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using WiSave.Portal.Contracts.Authorization;
 using WiSave.Portal.Authorization;
 using Xunit;
 
@@ -24,7 +25,7 @@ public class PermissionHandlerTests
     {
         var handler = new PermissionHandler();
         var requirement = new PermissionRequirement("expenses");
-        var context = CreateContext(requirement, ["expenses:read", "incomes:read"]);
+        var context = CreateContext(requirement, [PortalPermissions.Expenses.Read, PortalPermissions.Incomes.Read]);
 
         await handler.HandleAsync(context);
 
@@ -36,7 +37,7 @@ public class PermissionHandlerTests
     {
         var handler = new PermissionHandler();
         var requirement = new PermissionRequirement("expenses");
-        var context = CreateContext(requirement, ["incomes:read", "stocks:read"]);
+        var context = CreateContext(requirement, [PortalPermissions.Incomes.Read, PortalPermissions.Stocks.Read]);
 
         await handler.HandleAsync(context);
 
@@ -60,7 +61,7 @@ public class PermissionHandlerTests
     {
         var handler = new PermissionHandler();
         var requirement = new PermissionRequirement("exp");
-        var context = CreateContext(requirement, ["expenses:read"]);
+        var context = CreateContext(requirement, [PortalPermissions.Expenses.Read]);
 
         await handler.HandleAsync(context);
 

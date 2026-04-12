@@ -2,12 +2,12 @@ using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
-
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using WiSave.Portal.Auth.Models;
+using WiSave.Portal.Contracts.Authorization;
 using Xunit;
 
 namespace WiSave.Portal.Tests.Auth;
@@ -29,7 +29,14 @@ public class AuthEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
 
     public async ValueTask InitializeAsync()
     {
-        using var scope = _factory.Services.CreateScope();
+        await SeedIdentityDataAsync(_factory);
+    }
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+    private static async Task SeedIdentityDataAsync(WebApplicationFactory<Program> factory)
+    {
+        using var scope = factory.Services.CreateScope();
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
         foreach (var role in new[] { "superadmin", "admin", "user" })
         {
@@ -52,9 +59,9 @@ public class AuthEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
         {
             var permissions = new[]
             {
-                new Permission { Id = Guid.Parse("a3000000-0000-0000-0000-000000000001"), Name = "expenses:read" },
-                new Permission { Id = Guid.Parse("a3000000-0000-0000-0000-000000000002"), Name = "expenses:write" },
-                new Permission { Id = Guid.Parse("a3000000-0000-0000-0000-000000000003"), Name = "expenses:delete" },
+                new Permission { Id = Guid.Parse("a3000000-0000-0000-0000-000000000001"), Name = PortalPermissions.Expenses.Read },
+                new Permission { Id = Guid.Parse("a3000000-0000-0000-0000-000000000002"), Name = PortalPermissions.Expenses.Write },
+                new Permission { Id = Guid.Parse("a3000000-0000-0000-0000-000000000003"), Name = PortalPermissions.Expenses.Delete },
             };
             db.Permissions.AddRange(permissions);
             await db.SaveChangesAsync();
@@ -70,8 +77,6 @@ public class AuthEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
             await db.SaveChangesAsync();
         }
     }
-
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
     public async Task Register_ValidData_ReturnsUserAndSetsCookie()
@@ -123,7 +128,25 @@ public class AuthEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
     }
 
     [Fact]
-    public async Task Login_InvalidPassword_Returns401()
+    public async Task Login_UnknownEmail_Returns401WithUserNotFoundError()
+    {
+        var client = CreateClient();
+
+        var response = await PostWithAntiforgeryAsync(
+            client,
+            "/api/auth/login",
+            new LoginRequest("missing@example.com", "Password123!"));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+
+        var error = await response.Content.ReadFromJsonAsync<AuthErrorResponse>(CancellationToken);
+        Assert.NotNull(error);
+        Assert.Equal("USER_NOT_FOUND", error.Code);
+        Assert.Equal("No account exists for that email address.", error.Message);
+    }
+
+    [Fact]
+    public async Task Login_InvalidPassword_Returns401WithInvalidPasswordError()
     {
         var client = CreateClient();
 
@@ -134,6 +157,11 @@ public class AuthEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
         var response = await PostWithAntiforgeryAsync(client, "/api/auth/login", login);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+
+        var error = await response.Content.ReadFromJsonAsync<AuthErrorResponse>(CancellationToken);
+        Assert.NotNull(error);
+        Assert.Equal("INVALID_PASSWORD", error.Code);
+        Assert.Equal("The password is incorrect.", error.Message);
     }
 
     [Fact]
@@ -165,7 +193,7 @@ public class AuthEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
         var user = await response.Content.ReadFromJsonAsync<UserResponse>(CancellationToken);
         Assert.NotNull(user);
         Assert.NotNull(user.Permissions);
-        Assert.Contains("expenses:read", user.Permissions);
+        Assert.Contains(PortalPermissions.Expenses.Read, user.Permissions);
     }
 
     [Fact]
@@ -194,6 +222,56 @@ public class AuthEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
 
         var meResponse = await client.GetAsync("/api/auth/me", CancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, meResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Logout_WithoutAntiforgeryToken_Returns400()
+    {
+        var client = CreateClient();
+        await RegisterAsync(client, new RegisterRequest("Logout User", "logout-xsrf@example.com", "Password123!", "free"));
+
+        var response = await client.PostAsJsonAsync("/api/auth/logout", new { }, CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Logout_WithAntiforgeryToken_RefreshesXsrfCookie()
+    {
+        var client = CreateClient();
+        await RegisterAsync(client, new RegisterRequest("Logout User", "logout-refresh@example.com", "Password123!", "free"));
+
+        var response = await PostWithAntiforgeryAsync(client, "/api/auth/logout", new { });
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Contains(response.Headers.GetValues("Set-Cookie"), c => c.StartsWith("XSRF-TOKEN="));
+    }
+
+    [Fact]
+    public async Task Register_WithAntiforgeryTokenIssuedBeforeRestart_SucceedsWhenKeyRingIsShared()
+    {
+        var databaseName = "AuthRestart_" + Guid.NewGuid();
+        var keyRingPath = Path.Combine(Path.GetTempPath(), "wisave-portal-tests", Guid.NewGuid().ToString("N"));
+        var sharedCookies = new CookieContainer();
+
+        await using var issuingFactory = CreateConfiguredFactory(databaseName, keyRingPath);
+        await SeedIdentityDataAsync(issuingFactory);
+
+        var issuingClient = CreateClient(issuingFactory, sharedCookies);
+        var token = await GetAntiforgeryTokenAsync(issuingClient);
+
+        await using var restartedFactory = CreateConfiguredFactory(databaseName, keyRingPath);
+        await SeedIdentityDataAsync(restartedFactory);
+
+        var restartedClient = CreateClient(restartedFactory, sharedCookies);
+        var message = new HttpRequestMessage(HttpMethod.Post, "/api/auth/register");
+        message.Headers.Add("X-XSRF-TOKEN", token);
+        message.Content = JsonContent.Create(
+            new RegisterRequest("Restart User", "restart@example.com", "Password123!", "free"));
+
+        var response = await restartedClient.SendAsync(message, CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]
@@ -234,6 +312,10 @@ public class AuthEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
         var correctLogin = new LoginRequest("lockout@example.com", "Password123!");
         var stillLocked = await PostWithAntiforgeryAsync(client, "/api/auth/login", correctLogin);
         Assert.Equal(HttpStatusCode.Unauthorized, stillLocked.StatusCode);
+        var error = await stillLocked.Content.ReadFromJsonAsync<AuthErrorResponse>(CancellationToken);
+        Assert.NotNull(error);
+        Assert.Equal("LOCKED_OUT", error.Code);
+        Assert.Equal("This account is locked out.", error.Message);
     }
 
     [Fact]
@@ -316,11 +398,27 @@ public class AuthEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
     private HttpClient CreateClient(bool handleCookies = true)
     {
         var cookieContainer = new CookieContainer();
-        var handler = new CookieDelegatingHandler(cookieContainer, _factory.Server.CreateHandler());
+        return CreateClient(_factory, cookieContainer);
+    }
+
+    private static HttpClient CreateClient(WebApplicationFactory<Program> factory, CookieContainer cookieContainer)
+    {
+        var handler = new CookieDelegatingHandler(cookieContainer, factory.Server.CreateHandler());
         return new HttpClient(handler)
         {
             BaseAddress = new Uri("https://localhost"),
         };
+    }
+
+    private WebApplicationFactory<Program> CreateConfiguredFactory(string databaseName, string keyRingPath)
+    {
+        return _factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("UseInMemoryDatabase", "true");
+            builder.UseSetting("InMemoryDatabaseName", databaseName);
+            builder.UseSetting("Redis:ConnectionString", "");
+            builder.UseSetting("DataProtection:KeyRingPath", keyRingPath);
+        });
     }
 
     private static async Task<string> GetAntiforgeryTokenAsync(HttpClient client)

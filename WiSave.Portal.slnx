@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="src/WiSave.Portal.Contracts/WiSave.Portal.Contracts.csproj" />
   <Project Path="src/WiSave.Portal/WiSave.Portal.csproj" />
   <Project Path="src/WiSave.Portal.Console/WiSave.Portal.Console.csproj" />
   <Folder Name="/Solution Items/">

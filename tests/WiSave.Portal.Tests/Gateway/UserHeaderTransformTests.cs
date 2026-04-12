@@ -11,6 +11,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using WiSave.Portal.Auth.Models;
+using WiSave.Portal.Contracts.Authorization;
+using WiSave.Portal.Contracts.Identity;
 using Xunit;
 
 namespace WiSave.Portal.Tests.Gateway;
@@ -72,7 +74,7 @@ public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : 
             var incomesRead = new WiSave.Portal.Auth.Models.Permission
             {
                 Id = Guid.Parse("a1000000-0000-0000-0000-000000000001"),
-                Name = "incomes:read",
+                Name = PortalPermissions.Incomes.Read,
                 Description = "View incomes"
             };
             db.Permissions.Add(incomesRead);
@@ -99,8 +101,9 @@ public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotNull(forwarded);
         Assert.Equal("/incomes", forwarded.Path);
-        Assert.Equal(auth.User.Id, GetHeaderValue(forwarded, "X-User-Id"));
-        Assert.Equal(auth.User.Email, GetHeaderValue(forwarded, "X-User-Email"));
+        Assert.Equal(auth.User.Id, GetHeaderValue(forwarded, PortalHeaderNames.UserId));
+        Assert.Equal(auth.User.Email, GetHeaderValue(forwarded, PortalHeaderNames.UserEmail));
+        Assert.Equal(PortalPermissions.Incomes.Read, GetHeaderValue(forwarded, PortalHeaderNames.UserPermissions));
     }
 
     [Fact]
@@ -120,19 +123,19 @@ public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : 
         var auth = await RegisterAsync(client, "Spoof User", "spoof@example.com");
 
         var request = new HttpRequestMessage(HttpMethod.Get, "/api/incomes");
-        request.Headers.TryAddWithoutValidation("X-User-Id", "spoofed-id");
-        request.Headers.TryAddWithoutValidation("X-User-Email", "evil@attacker.com");
-        request.Headers.TryAddWithoutValidation("X-User-Roles", "admin");
+        request.Headers.TryAddWithoutValidation(PortalHeaderNames.UserId, "spoofed-id");
+        request.Headers.TryAddWithoutValidation(PortalHeaderNames.UserEmail, "evil@attacker.com");
+        request.Headers.TryAddWithoutValidation(PortalHeaderNames.UserRoles, "admin");
 
         var response = await client.SendAsync(request, CancellationToken);
         var forwarded = await response.Content.ReadFromJsonAsync<ForwardedRequest>(CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotNull(forwarded);
-        Assert.Equal(auth.User.Id, GetHeaderValue(forwarded, "X-User-Id"));
-        Assert.Equal(auth.User.Email, GetHeaderValue(forwarded, "X-User-Email"));
+        Assert.Equal(auth.User.Id, GetHeaderValue(forwarded, PortalHeaderNames.UserId));
+        Assert.Equal(auth.User.Email, GetHeaderValue(forwarded, PortalHeaderNames.UserEmail));
         // Spoofed "admin" role should be overwritten with actual "user" role
-        Assert.Equal("user", GetHeaderValue(forwarded, "X-User-Roles"));
+        Assert.Equal("user", GetHeaderValue(forwarded, PortalHeaderNames.UserRoles));
     }
 
     [Fact]
