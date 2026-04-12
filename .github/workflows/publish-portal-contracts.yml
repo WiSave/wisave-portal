@@ -1,0 +1,63 @@
+name: Publish WiSave.Portal.Contracts
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-portal-contracts-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore solution
+        run: dotnet restore WiSave.Portal.slnx
+
+      - name: Run portal tests
+        run: dotnet test tests/WiSave.Portal.Tests/WiSave.Portal.Tests.csproj --configuration Release --no-restore
+
+      - name: Compute package version
+        id: version
+        shell: bash
+        run: |
+          version_prefix=$(grep -oPm1 '(?<=<VersionPrefix>)[^<]+' src/WiSave.Portal.Contracts/WiSave.Portal.Contracts.csproj)
+          package_version="${version_prefix}.${GITHUB_RUN_NUMBER}"
+          echo "package_version=${package_version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Pack WiSave.Portal.Contracts
+        run: >
+          dotnet pack src/WiSave.Portal.Contracts/WiSave.Portal.Contracts.csproj
+          --configuration Release
+          --no-restore
+          --output artifacts/packages
+          -p:PackageVersion=${{ steps.version.outputs.package_version }}
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: wisave-portal-contracts-${{ steps.version.outputs.package_version }}
+          path: artifacts/packages/*.nupkg
+          if-no-files-found: error
+
+      - name: Publish to GitHub Packages
+        run: >
+          dotnet nuget push "artifacts/packages/*.nupkg"
+          --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
+          --api-key "${{ secrets.GITHUB_TOKEN }}"
+          --skip-duplicate
