@@ -23,15 +23,15 @@ public static class Extensions
 
         if (!string.IsNullOrWhiteSpace(redisConnection))
         {
-            var multiplexer = ConnectionMultiplexer.Connect(redisConnection);
-            services.AddSingleton<IConnectionMultiplexer>(multiplexer);
+            var multiplexer = new Lazy<IConnectionMultiplexer>(() => ConnectionMultiplexer.Connect(redisConnection));
+            services.AddSingleton<IConnectionMultiplexer>(_ => multiplexer.Value);
             services.AddStackExchangeRedisCache(options =>
             {
                 options.Configuration = redisConnection;
                 options.InstanceName = "WiSave:";
             });
             dataProtection.PersistKeysToStackExchangeRedis(
-                multiplexer,
+                () => multiplexer.Value.GetDatabase(),
                 configuration["DataProtection:RedisKey"] ?? "WiSave.Portal:DataProtection-Keys");
         }
         else if (allowInMemoryFallback)
