@@ -43,10 +43,11 @@ public static class AuthEndpoints
             .AddEndpointFilter<AntiforgeryValidationFilter>()
             .RequireRateLimiting("auth-login")
             .Produces<AuthResponse>()
-            .Produces(401)
+            .Produces<AuthErrorResponse>(401)
             .WithSummary("Authenticate with email and password");
 
         group.MapPost("/logout", Logout)
+            .AddEndpointFilter<AntiforgeryValidationFilter>()
             .RequireAuthorization()
             .Produces(204)
             .WithSummary("Clear session");
@@ -106,7 +107,7 @@ public static class AuthEndpoints
         SetXsrfTokenCookie(antiforgery, context);
 
         var permissions = await ResolvePermissionsAsync(user.Id, userManager, userPlanCache, planPermissionCache);
-        var response = new AuthResponse(new UserResponse(user.Id, user.Name, user.Email, permissions));
+        var response = new AuthResponse(new UserResponse(user.Id, user.Name, user.Email!, permissions));
         return Results.Ok(response);
     }
 
@@ -119,31 +120,52 @@ public static class AuthEndpoints
         UserPlanCache userPlanCache,
         PlanPermissionCache planPermissionCache)
     {
-        var user = await userManager.FindByEmailAsync(request.Email);
+        var normalized = userManager.NormalizeEmail(request.Email);
+        var user = await userManager.FindByEmailAsync(normalized);
 
         if (user is null)
         {
-            return Results.Unauthorized();
+            return UnauthorizedError(
+                "USER_NOT_FOUND",
+                "No account exists for that email address.");
         }
 
         var result = await signInManager.PasswordSignInAsync(
             user, request.Password, isPersistent: true, lockoutOnFailure: true);
 
-        if (result.IsLockedOut || !result.Succeeded)
+        if (result.IsLockedOut)
         {
-            return Results.Unauthorized();
+            return UnauthorizedError("LOCKED_OUT", "This account is locked out.");
+        }
+
+        if (result.IsNotAllowed)
+        {
+            return UnauthorizedError(
+                "NOT_ALLOWED",
+                "Sign-in is not allowed for this account.");
+        }
+
+        if (!result.Succeeded)
+        {
+            return UnauthorizedError(
+                "INVALID_PASSWORD",
+                "The password is incorrect.");
         }
 
         SetXsrfTokenCookie(antiforgery, context);
 
         var permissions = await ResolvePermissionsAsync(user.Id, userManager, userPlanCache, planPermissionCache);
-        var response = new AuthResponse(new UserResponse(user.Id, user.Name, user.Email, permissions));
+        var response = new AuthResponse(new UserResponse(user.Id, user.Name, user.Email!, permissions));
         return Results.Ok(response);
     }
 
-    private static async Task<IResult> Logout(SignInManager<ApplicationUser> signInManager)
+    private static async Task<IResult> Logout(
+        SignInManager<ApplicationUser> signInManager,
+        IAntiforgery antiforgery,
+        HttpContext context)
     {
         await signInManager.SignOutAsync();
+        SetXsrfTokenCookie(antiforgery, context);
         return Results.NoContent();
     }
 
@@ -209,4 +231,9 @@ public static class AuthEndpoints
         var permissions = await planPermissionCache.GetPermissionsAsync(planId);
         return [.. permissions];
     }
+
+    private static IResult UnauthorizedError(string code, string message) =>
+        Results.Json(
+            new AuthErrorResponse(code, message),
+            statusCode: StatusCodes.Status401Unauthorized);
 }

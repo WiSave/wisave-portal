@@ -7,3 +7,5 @@ public record RegisterRequest(string Name, string Email, string Password, string
 public record UserResponse(string Id, string Name, string Email, string[] Permissions);
 
 public record AuthResponse(UserResponse User);
+
+public record AuthErrorResponse(string Code, string Message);
