@@ -2,18 +2,19 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using MassTransit;
-using MassTransit.Testing;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using WiSave.Expenses.Contracts.Bus;
 using WiSave.Expenses.Contracts.Events;
 using WiSave.Expenses.Contracts.Events.Accounts;
 using WiSave.Expenses.Contracts.Events.Expenses;
 using WiSave.Expenses.Contracts.Models;
 using WiSave.Portal.Auth.Models;
+using WiSave.Portal.Contracts.Bus;
 using Xunit;
 
 namespace WiSave.Portal.IntegrationTests.Messaging;
@@ -29,11 +30,8 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
         {
             builder.UseSetting("UseInMemoryDatabase", "true");
             builder.UseSetting("InMemoryDatabaseName", "ConsumerTests_" + Guid.NewGuid());
+            builder.UseSetting("Messaging:Transport", "InMemory");
             builder.UseSetting("Redis:ConnectionString", "");
-            builder.ConfigureServices(services =>
-            {
-                services.AddMassTransitTestHarness();
-            });
         });
     }
 
@@ -62,6 +60,18 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
+    public void Services_ExposeTypedExpensesBusPublishEndpoint()
+    {
+        using var scope = _factory.Services.CreateScope();
+
+        var expensesBus = scope.ServiceProvider.GetService<IExpensesBus>();
+        var portalBus = scope.ServiceProvider.GetService<IPortalBus>();
+
+        Assert.NotNull(expensesBus);
+        Assert.NotNull(portalBus);
+    }
+
+    [Fact]
     public async Task ExpenseRecorded_IsPushedToSignalRClient()
     {
         var (connection, userId) = await CreateAuthenticatedHubConnection("expense@example.com");
@@ -74,8 +84,7 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
 
         await connection.StartAsync(CancellationToken);
 
-        var harness = _factory.Services.GetRequiredService<ITestHarness>();
-        await harness.Bus.Publish(new ExpenseRecorded(
+        await PublishOnExpensesBus(new ExpenseRecorded(
             ExpenseId: "exp-1",
             UserId: userId,
             AccountId: "acc-1",
@@ -88,7 +97,7 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
             Recurring: false,
             Metadata: null,
             Timestamp: DateTimeOffset.UtcNow
-        ), CancellationToken);
+        ));
 
         var result = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
         Assert.Equal("exp-1", result.GetProperty("expenseId").GetString());
@@ -112,14 +121,13 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
         await connection.StartAsync(CancellationToken);
 
         var correlationId = Guid.NewGuid();
-        var harness = _factory.Services.GetRequiredService<ITestHarness>();
-        await harness.Bus.Publish(new CommandFailed(
+        await PublishOnExpensesBus(new CommandFailed(
             CorrelationId: correlationId,
             UserId: userId,
             CommandType: "RecordExpense",
             Reason: "Insufficient funds",
             Timestamp: DateTimeOffset.UtcNow
-        ), CancellationToken);
+        ));
 
         var result = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
         Assert.Equal("RecordExpense", result.GetProperty("commandType").GetString());
@@ -142,8 +150,7 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
 
         await connection.StartAsync(CancellationToken);
 
-        var harness = _factory.Services.GetRequiredService<ITestHarness>();
-        await harness.Bus.Publish(new AccountOpened(
+        await PublishOnExpensesBus(new AccountOpened(
             AccountId: "acc-42",
             UserId: userId,
             Name: "Main Account",
@@ -156,7 +163,7 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
             Color: "#FF0000",
             LastFourDigits: "1234",
             Timestamp: DateTimeOffset.UtcNow
-        ), CancellationToken);
+        ));
 
         var result = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
         Assert.Equal("acc-42", result.GetProperty("accountId").GetString());
@@ -210,6 +217,15 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
         var xsrfCookie = response.Headers.GetValues("Set-Cookie")
             .First(c => c.StartsWith("XSRF-TOKEN="));
         return Uri.UnescapeDataString(xsrfCookie.Split('=', 2)[1].Split(';')[0]);
+    }
+
+    private async Task PublishOnExpensesBus<T>(T message)
+        where T : class
+    {
+        using var scope = _factory.Services.CreateScope();
+        var bus = scope.ServiceProvider.GetRequiredService<IExpensesBus>();
+
+        await bus.Publish(message, CancellationToken);
     }
 
     // Delegating handler that manages a cookie container, forwarding cookies on requests

@@ -24,7 +24,7 @@
     <PackageReference Include="Scalar.AspNetCore" Version="2.13.22" />
     <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
     <PackageReference Include="MassTransit.RabbitMQ" Version="8.5.8" />
-    <PackageReference Include="WiSave.Expenses.Contracts" Version="0.1.0" />
+    <PackageReference Include="WiSave.Expenses.Contracts" Version="1.0.1" />
   </ItemGroup>
 
   <ItemGroup>
