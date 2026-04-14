@@ -16,6 +16,7 @@ public static class Extensions
         services.AddMassTransit(x =>
         {
             x.AddConsumer<NotificationConsumer>();
+
             x.SetEndpointNameFormatter(new DefaultEndpointNameFormatter(".", null, true));
             x.UsingRabbitMq((context, cfg) =>
             {
