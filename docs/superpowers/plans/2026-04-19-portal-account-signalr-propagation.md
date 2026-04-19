@@ -16,6 +16,43 @@
 
 ---
 
+### End-To-End Event Flow
+
+```mermaid
+flowchart LR
+    A[wisave-expenses<br/>AccountOpened / AccountUpdated] --> B[MassTransit expenses bus]
+    B --> C[wisave-portal<br/>NotificationConsumer]
+    C --> D[Map to ExpensesAccountRealtimePayload]
+    D --> E[Wrap in RealtimeEnvelope<br/>domain=expenses]
+    E --> F[NotificationsHub.SendAsync<br/>user SignalR group]
+    F --> G[wisave-ui<br/>PortalSignalRService]
+    G --> H[ExpensesSignalRService<br/>accountOpened$ / accountUpdated$]
+    H --> I[withAccountsSignalR<br/>mapAccountFromSignalR]
+    I --> J[accounts store<br/>accountUpsertedSignalR]
+    J --> K[account cards / totals / effective balance]
+
+    L[account.closed] --> M[accountRemovedSignalR]
+    M --> J
+
+    N[SignalR reconnect] --> O[accountsPageEvents.opened]
+    O --> J
+```
+
+1. `wisave-expenses` publishes a full-snapshot `AccountOpened` or `AccountUpdated` event on the expenses bus.
+2. `wisave-portal` `NotificationConsumer` consumes that contracts event from MassTransit.
+3. `NotificationConsumer` maps the contracts event into `ExpensesAccountRealtimePayload` and wraps it in `RealtimeEnvelope` with `Domain: "expenses"` and `EventType: "account.opened"` or `"account.updated"`.
+4. `NotificationsHub` pushes that envelope to the authenticated user SignalR group via `SendAsync("realtimeEvent", env, ...)`.
+5. `wisave-ui` `PortalSignalRService` receives the envelope from the hub connection.
+6. `ExpensesSignalRService` routes the envelope into `accountOpened$` or `accountUpdated$` based on `domain === 'expenses'` and the event type.
+7. `withAccountsSignalR` maps `env.payload` through `mapAccountFromSignalR(...)` for both opened and updated events.
+8. The accounts store emits `accountUpsertedSignalR` and replaces the account entity wholesale instead of merging a partial patch.
+9. Account cards, totals, and effective-balance UI derive their display state from the replaced store entity; no normal-path refetch from the backend is required.
+10. `account.closed` stays id-only and removes the entity, while reconnect recovery remains a backup path through `accountsPageEvents.opened()` rather than the primary propagation mechanism.
+
+This plan must preserve that flow end-to-end. If any step cannot provide the full snapshot needed by the next boundary, stop and fix that boundary instead of adding partial merge logic back into the FE.
+
+---
+
 ### File Map
 
 | File | Action | Responsibility |
@@ -853,6 +890,6 @@ Expected:
 
 ### Self-Review
 
-- Spec coverage: the plan covers the portal contracts-package precondition, portal-side explicit account DTO mapping, portal SignalR boundary tests, UI full-snapshot account payload typing, removal of account patch merge logic, and cross-repo verification.
+- Spec coverage: the plan covers the portal contracts-package precondition, the explicit end-to-end account event flow, portal-side explicit account DTO mapping, portal SignalR boundary tests, UI full-snapshot account payload typing, removal of account patch merge logic, and cross-repo verification.
 - Placeholder scan: no `TODO`, `TBD`, or “implement later” steps remain.
 - Type consistency: `ExpensesAccountRealtimePayload`, `IAccountUpdatedPayload`, `AccountOpened`, `AccountUpdated`, and the full-snapshot replacement semantics are consistent across portal and UI tasks.
