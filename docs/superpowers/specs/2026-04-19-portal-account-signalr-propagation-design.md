@@ -94,7 +94,7 @@ Add an explicit FE-facing account realtime payload used only by the portal realt
 Recommended shape for both `account.opened` and `account.updated`:
 
 ```csharp
-public sealed record ExpensesAccountRealtimePayload(
+public sealed record AccountPayload(
     string AccountId,
     string UserId,
     string Name,
@@ -126,7 +126,7 @@ The portal should explicitly map account events instead of forwarding the raw me
 
 ### `AccountOpened`
 
-Map the event to `ExpensesAccountRealtimePayload` and publish it as:
+Map the event to `AccountPayload` and publish it as:
 
 - `domain: "expenses"`
 - `eventType: "account.opened"`
@@ -135,7 +135,7 @@ Map the event to `ExpensesAccountRealtimePayload` and publish it as:
 
 ### `AccountUpdated`
 
-Map the event to the same `ExpensesAccountRealtimePayload` shape and publish it as:
+Map the event to the same `AccountPayload` shape and publish it as:
 
 - `domain: "expenses"`
 - `eventType: "account.updated"`

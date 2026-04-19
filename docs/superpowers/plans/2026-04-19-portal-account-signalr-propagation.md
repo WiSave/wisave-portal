@@ -22,7 +22,7 @@
 flowchart LR
     A[wisave-expenses<br/>AccountOpened / AccountUpdated] --> B[MassTransit expenses bus]
     B --> C[wisave-portal<br/>NotificationConsumer]
-    C --> D[Map to ExpensesAccountRealtimePayload]
+    C --> D[Map to AccountPayload]
     D --> E[Wrap in RealtimeEnvelope<br/>domain=expenses]
     E --> F[NotificationsHub.SendAsync<br/>user SignalR group]
     F --> G[wisave-ui<br/>PortalSignalRService]
@@ -40,7 +40,7 @@ flowchart LR
 
 1. `wisave-expenses` publishes a full-snapshot `AccountOpened` or `AccountUpdated` event on the expenses bus.
 2. `wisave-portal` `NotificationConsumer` consumes that contracts event from MassTransit.
-3. `NotificationConsumer` maps the contracts event into `ExpensesAccountRealtimePayload` and wraps it in `RealtimeEnvelope` with `Domain: "expenses"` and `EventType: "account.opened"` or `"account.updated"`.
+3. `NotificationConsumer` maps the contracts event into `AccountPayload` and wraps it in `RealtimeEnvelope` with `Domain: "expenses"` and `EventType: "account.opened"` or `"account.updated"`.
 4. `NotificationsHub` pushes that envelope to the authenticated user SignalR group via `SendAsync("realtimeEvent", env, ...)`.
 5. `wisave-ui` `PortalSignalRService` receives the envelope from the hub connection.
 6. `ExpensesSignalRService` routes the envelope into `accountOpened$` or `accountUpdated$` based on `domain === 'expenses'` and the event type.
@@ -57,7 +57,7 @@ This plan must preserve that flow end-to-end. If any step cannot provide the ful
 
 | File | Action | Responsibility |
 | ---- | ------ | -------------- |
-| `src/WiSave.Portal/Hubs/Realtime/ExpensesAccountRealtimePayload.cs` | Create | FE-facing full snapshot DTO for account realtime events |
+| `src/WiSave.Portal/Hubs/Realtime/AccountPayload.cs` | Create | FE-facing full snapshot DTO for account realtime events |
 | `src/WiSave.Portal/WiSave.Portal.csproj` | Verify | Confirm the consumed `WiSave.Expenses.Contracts` package version contains the new account event shape before starting code changes |
 | `src/WiSave.Portal/Messaging/NotificationConsumer.cs` | Modify | Explicit portal-side mapping and push path for `AccountOpened` / `AccountUpdated` |
 | `tests/WiSave.Portal.UnitTests/Messaging/NotificationConsumerEnvelopeTests.cs` | Modify | Prove account envelopes carry FE-facing mapped payloads and full snapshots |
@@ -71,7 +71,7 @@ This plan must preserve that flow end-to-end. If any step cannot provide the ful
 ### Task 1: Add Portal Account Realtime DTO And Explicit Mapping
 
 **Files:**
-- Create: `src/WiSave.Portal/Hubs/Realtime/ExpensesAccountRealtimePayload.cs`
+- Create: `src/WiSave.Portal/Hubs/Realtime/AccountPayload.cs`
 - Modify: `src/WiSave.Portal/Messaging/NotificationConsumer.cs`
 - Test: `tests/WiSave.Portal.UnitTests/Messaging/NotificationConsumerEnvelopeTests.cs`
 
@@ -116,7 +116,7 @@ public async Task AccountOpened_sent_as_full_account_snapshot_payload()
     Assert.Equal(RealtimeEventType.AccountOpened, env.EventType);
     Assert.Equal(accountId, env.EntityId);
 
-    var payload = Assert.IsType<ExpensesAccountRealtimePayload>(env.Payload);
+    var payload = Assert.IsType<AccountPayload>(env.Payload);
     Assert.Equal("CreditCard", payload.Type);
     Assert.Null(payload.Variant);
     Assert.Null(payload.Balance);
@@ -161,7 +161,7 @@ public async Task AccountUpdated_sent_as_full_account_snapshot_payload_not_patch
     Assert.Equal(RealtimeEventType.AccountUpdated, env.EventType);
     Assert.Equal(accountId, env.EntityId);
 
-    var payload = Assert.IsType<ExpensesAccountRealtimePayload>(env.Payload);
+    var payload = Assert.IsType<AccountPayload>(env.Payload);
     Assert.Equal("DebitCard", payload.Type);
     Assert.Equal("standalone", payload.Variant);
     Assert.Equal(250m, payload.Balance);
@@ -179,17 +179,17 @@ dotnet test tests/WiSave.Portal.UnitTests/WiSave.Portal.UnitTests.csproj --filte
 
 Expected:
 
-- FAIL because `ExpensesAccountRealtimePayload` does not exist
+- FAIL because `AccountPayload` does not exist
 - FAIL because `NotificationConsumer` still forwards raw `AccountOpened` / `AccountUpdated` payloads
 
 - [ ] **Step 3: Add the FE-facing account realtime DTO**
 
-Create `src/WiSave.Portal/Hubs/Realtime/ExpensesAccountRealtimePayload.cs`:
+Create `src/WiSave.Portal/Hubs/Realtime/AccountPayload.cs`:
 
 ```csharp
 namespace WiSave.Portal.Hubs.Realtime;
 
-public sealed record ExpensesAccountRealtimePayload(
+public sealed record AccountPayload(
     string AccountId,
     string UserId,
     string Name,
@@ -276,7 +276,7 @@ public class NotificationConsumer(IHubContext<NotificationsHub> hub) :
     private Task PushAccount<T>(
         ConsumeContext<T> ctx,
         string eventType,
-        ExpensesAccountRealtimePayload payload)
+        AccountPayload payload)
         where T : class
     {
         var env = new RealtimeEnvelope(
@@ -290,7 +290,7 @@ public class NotificationConsumer(IHubContext<NotificationsHub> hub) :
         return hub.Clients.Group(payload.UserId).SendAsync("realtimeEvent", env, ctx.CancellationToken);
     }
 
-    private static ExpensesAccountRealtimePayload MapAccountPayload(AccountOpened message) =>
+    private static AccountPayload MapAccountPayload(AccountOpened message) =>
         new(
             message.AccountId,
             message.UserId,
@@ -313,7 +313,7 @@ public class NotificationConsumer(IHubContext<NotificationsHub> hub) :
             message.LastFourDigits,
             message.Timestamp);
 
-    private static ExpensesAccountRealtimePayload MapAccountPayload(AccountUpdated message) =>
+    private static AccountPayload MapAccountPayload(AccountUpdated message) =>
         new(
             message.AccountId,
             message.UserId,
@@ -370,7 +370,7 @@ Use a path-limited commit:
 
 ```bash
 git -C /Users/jakubchwastek/Desktop/Projects/wisave_project/wisave-portal add \
-  src/WiSave.Portal/Hubs/Realtime/ExpensesAccountRealtimePayload.cs \
+  src/WiSave.Portal/Hubs/Realtime/AccountPayload.cs \
   src/WiSave.Portal/Messaging/NotificationConsumer.cs \
   tests/WiSave.Portal.UnitTests/Messaging/NotificationConsumerEnvelopeTests.cs
 
@@ -892,4 +892,4 @@ Expected:
 
 - Spec coverage: the plan covers the portal contracts-package precondition, the explicit end-to-end account event flow, portal-side explicit account DTO mapping, portal SignalR boundary tests, UI full-snapshot account payload typing, removal of account patch merge logic, and cross-repo verification.
 - Placeholder scan: no `TODO`, `TBD`, or “implement later” steps remain.
-- Type consistency: `ExpensesAccountRealtimePayload`, `IAccountUpdatedPayload`, `AccountOpened`, `AccountUpdated`, and the full-snapshot replacement semantics are consistent across portal and UI tasks.
+- Type consistency: `AccountPayload`, `IAccountUpdatedPayload`, `AccountOpened`, `AccountUpdated`, and the full-snapshot replacement semantics are consistent across portal and UI tasks.
