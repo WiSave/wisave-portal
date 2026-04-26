@@ -51,59 +51,42 @@ public class ExpensesRealtimePayloadProviderTests
     }
 
     [Fact]
-    public async Task GetCreditCardAccountAsync_fetches_credit_card_account_snapshot()
+    public async Task GetFundingAccountAsync_retries_not_found_projection_lag()
     {
-        HttpRequestMessage? capturedRequest = null;
+        var attempts = 0;
 
-        var handler = new StubHttpMessageHandler(request =>
+        var handler = new StubHttpMessageHandler(_ =>
         {
-            capturedRequest = request;
+            attempts++;
+            if (attempts < 3)
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+
             return JsonResponse(
                 """
                 {
-                  "id": "card-1",
+                  "id": "funding-1",
                   "userId": "user-1",
-                  "name": "Millennium",
+                  "name": "Main bank",
+                  "kind": "BankAccount",
                   "currency": "PLN",
-                  "settlementAccountId": "funding-1",
-                  "bankProvider": "MBank",
-                  "productCode": "visa-gold",
-                  "creditLimit": 5000,
-                  "statementClosingDay": 16,
-                  "gracePeriodDays": 24,
-                  "unbilledBalance": 340,
-                  "activeStatementBalance": 1200,
-                  "activeStatementOutstandingBalance": 900,
-                  "activeStatementMinimumPaymentDue": 60,
-                  "activeStatementDueDate": "2026-05-10",
-                  "activeStatementPeriodCloseDate": "2026-04-16",
-                  "color": "#f59e0b",
-                  "lastFourDigits": "4532",
+                  "balance": 1200.50,
+                  "color": "#2563eb",
                   "isActive": true,
                   "createdAt": "2026-04-26T10:00:00Z",
-                  "updatedAt": null
+                  "updatedAt": "2026-04-26T11:00:00Z"
                 }
                 """);
         });
 
         using var httpClient = CreateClient(handler);
-        var provider = new ExpensesRealtimePayloadProvider(httpClient);
+        var provider = new ExpensesRealtimePayloadProvider(
+            httpClient,
+            static (_, _) => ValueTask.CompletedTask);
 
-        var payload = await provider.GetCreditCardAccountAsync("user-1", "card-1", CancellationToken.None);
+        var payload = await provider.GetFundingAccountAsync("user-1", "funding-1", CancellationToken.None);
 
-        Assert.NotNull(capturedRequest);
-        Assert.Equal(HttpMethod.Get, capturedRequest!.Method);
-        Assert.Equal(new Uri("http://expenses.local/expenses/credit-cards/card-1"), capturedRequest.RequestUri);
-        Assert.Equal("user-1", capturedRequest.Headers.GetValues("X-User-Id").Single());
-        Assert.Equal(PortalPermissions.Expenses.Read, capturedRequest.Headers.GetValues("X-User-Permissions").Single());
-
-        Assert.Equal("card-1", payload.CreditCardAccountId);
-        Assert.Equal("funding-1", payload.SettlementAccountId);
-        Assert.Equal("MBank", payload.BankProvider);
-        Assert.Equal(1200m, payload.ActiveStatementBalance);
-        Assert.Equal(900m, payload.ActiveStatementOutstandingBalance);
-        Assert.Equal(new DateOnly(2026, 5, 10), payload.ActiveStatementDueDate);
-        Assert.Equal(DateTimeOffset.Parse("2026-04-26T10:00:00Z"), payload.Timestamp);
+        Assert.Equal(3, attempts);
+        Assert.Equal("funding-1", payload.FundingAccountId);
     }
 
     [Fact]

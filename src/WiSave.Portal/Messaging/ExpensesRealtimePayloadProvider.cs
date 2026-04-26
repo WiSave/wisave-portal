@@ -5,8 +5,32 @@ using WiSave.Portal.Hubs.Realtime;
 
 namespace WiSave.Portal.Messaging;
 
-public sealed class ExpensesRealtimePayloadProvider(HttpClient httpClient) : IExpensesRealtimePayloadProvider
+public sealed class ExpensesRealtimePayloadProvider : IExpensesRealtimePayloadProvider
 {
+    private static readonly TimeSpan[] ProjectionRetryDelays =
+    [
+        TimeSpan.FromMilliseconds(100),
+        TimeSpan.FromMilliseconds(250),
+        TimeSpan.FromMilliseconds(500),
+        TimeSpan.FromSeconds(1),
+    ];
+
+    private readonly HttpClient _httpClient;
+    private readonly Func<TimeSpan, CancellationToken, ValueTask> _delayAsync;
+
+    public ExpensesRealtimePayloadProvider(HttpClient httpClient)
+        : this(httpClient, DelayAsync)
+    {
+    }
+
+    public ExpensesRealtimePayloadProvider(
+        HttpClient httpClient,
+        Func<TimeSpan, CancellationToken, ValueTask> delayAsync)
+    {
+        _httpClient = httpClient;
+        _delayAsync = delayAsync;
+    }
+
     public async Task<FundingAccountPayload> GetFundingAccountAsync(
         string userId,
         string fundingAccountId,
@@ -54,58 +78,37 @@ public sealed class ExpensesRealtimePayloadProvider(HttpClient httpClient) : IEx
             .ToArray();
     }
 
-    public async Task<CreditCardAccountPayload> GetCreditCardAccountAsync(
-        string userId,
-        string creditCardAccountId,
-        CancellationToken ct = default)
-    {
-        var snapshot = await GetAsync<CreditCardAccountSnapshotResponse>(
-            userId,
-            $"/expenses/credit-cards/{Uri.EscapeDataString(creditCardAccountId)}",
-            $"Credit card account '{creditCardAccountId}' was not found in expenses projections.",
-            ct);
-
-        return new CreditCardAccountPayload(
-            CreditCardAccountId: snapshot.Id,
-            UserId: snapshot.UserId,
-            Name: snapshot.Name,
-            Currency: snapshot.Currency,
-            SettlementAccountId: snapshot.SettlementAccountId,
-            BankProvider: snapshot.BankProvider,
-            ProductCode: snapshot.ProductCode,
-            CreditLimit: snapshot.CreditLimit,
-            StatementClosingDay: snapshot.StatementClosingDay,
-            GracePeriodDays: snapshot.GracePeriodDays,
-            UnbilledBalance: snapshot.UnbilledBalance,
-            ActiveStatementBalance: snapshot.ActiveStatementBalance,
-            ActiveStatementOutstandingBalance: snapshot.ActiveStatementOutstandingBalance,
-            ActiveStatementMinimumPaymentDue: snapshot.ActiveStatementMinimumPaymentDue,
-            ActiveStatementDueDate: snapshot.ActiveStatementDueDate,
-            ActiveStatementPeriodCloseDate: snapshot.ActiveStatementPeriodCloseDate,
-            Color: snapshot.Color,
-            LastFourDigits: snapshot.LastFourDigits,
-            Timestamp: snapshot.UpdatedAt ?? snapshot.CreatedAt);
-    }
-
     private async Task<T> GetAsync<T>(
         string userId,
         string path,
         string notFoundMessage,
         CancellationToken ct)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, path);
-        request.Headers.TryAddWithoutValidation("X-User-Id", userId);
-        request.Headers.TryAddWithoutValidation("X-User-Permissions", PortalPermissions.Expenses.Read);
+        for (var attempt = 0; ; attempt++)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, path);
+            request.Headers.TryAddWithoutValidation("X-User-Id", userId);
+            request.Headers.TryAddWithoutValidation("X-User-Permissions", PortalPermissions.Expenses.Read);
 
-        using var response = await httpClient.SendAsync(request, ct);
-        if (response.StatusCode == HttpStatusCode.NotFound)
-            throw new InvalidOperationException(notFoundMessage);
+            using var response = await _httpClient.SendAsync(request, ct);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                if (attempt >= ProjectionRetryDelays.Length)
+                    throw new InvalidOperationException(notFoundMessage);
 
-        response.EnsureSuccessStatusCode();
+                await _delayAsync(ProjectionRetryDelays[attempt], ct);
+                continue;
+            }
 
-        return await response.Content.ReadFromJsonAsync<T>(cancellationToken: ct)
-            ?? throw new InvalidOperationException("Expenses response body was empty.");
+            response.EnsureSuccessStatusCode();
+
+            return await response.Content.ReadFromJsonAsync<T>(cancellationToken: ct)
+                ?? throw new InvalidOperationException("Expenses response body was empty.");
+        }
     }
+
+    private static async ValueTask DelayAsync(TimeSpan delay, CancellationToken ct) =>
+        await Task.Delay(delay, ct);
 
     private sealed record FundingAccountSnapshotResponse(
         string Id,
@@ -132,26 +135,4 @@ public sealed class ExpensesRealtimePayloadProvider(HttpClient httpClient) : IEx
         DateTimeOffset CreatedAt,
         DateTimeOffset? UpdatedAt);
 
-    private sealed record CreditCardAccountSnapshotResponse(
-        string Id,
-        string UserId,
-        string Name,
-        string Currency,
-        string SettlementAccountId,
-        string BankProvider,
-        string ProductCode,
-        decimal CreditLimit,
-        int StatementClosingDay,
-        int GracePeriodDays,
-        decimal UnbilledBalance,
-        decimal? ActiveStatementBalance,
-        decimal? ActiveStatementOutstandingBalance,
-        decimal? ActiveStatementMinimumPaymentDue,
-        DateOnly? ActiveStatementDueDate,
-        DateOnly? ActiveStatementPeriodCloseDate,
-        string? Color,
-        string? LastFourDigits,
-        bool IsActive,
-        DateTimeOffset CreatedAt,
-        DateTimeOffset? UpdatedAt);
 }

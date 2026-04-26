@@ -2,7 +2,6 @@ using MassTransit;
 using Microsoft.AspNetCore.SignalR;
 using WiSave.Expenses.Contracts.Events;
 using WiSave.Expenses.Contracts.Events.Budgets;
-using WiSave.Expenses.Contracts.Events.CreditCards;
 using WiSave.Expenses.Contracts.Events.Expenses;
 using WiSave.Expenses.Contracts.Events.FundingAccounts;
 using WiSave.Portal.Hubs;
@@ -20,12 +19,6 @@ public class NotificationConsumer(
     IConsumer<FundingPaymentInstrumentUpdated>,
     IConsumer<FundingPaymentInstrumentRemoved>,
     IConsumer<FundingTransferPosted>,
-    IConsumer<CreditCardAccountOpened>,
-    IConsumer<CreditCardAccountUpdated>,
-    IConsumer<CreditCardAccountClosed>,
-    IConsumer<CreditCardStateSeeded>,
-    IConsumer<CreditCardStatementIssued>,
-    IConsumer<CreditCardStatementPaymentApplied>,
     IConsumer<ExpenseRecorded>,
     IConsumer<ExpenseUpdated>,
     IConsumer<ExpenseDeleted>,
@@ -78,46 +71,6 @@ public class NotificationConsumer(
 
     public Task Consume(ConsumeContext<FundingTransferPosted> ctx) =>
         Push(ctx, RealtimeEventType.FundingTransferPosted, ctx.Message.UserId, ctx.Message.FundingAccountId);
-
-    public async Task Consume(ConsumeContext<CreditCardAccountOpened> ctx)
-    {
-        var payload = await payloadProvider.GetCreditCardAccountAsync(
-            ctx.Message.UserId,
-            ctx.Message.CreditCardAccountId,
-            ctx.CancellationToken);
-        await Push(
-            RealtimeEventType.CreditCardAccountOpened,
-            ctx.Message.UserId,
-            ctx.Message.CreditCardAccountId,
-            payload,
-            ctx.CancellationToken);
-    }
-
-    public async Task Consume(ConsumeContext<CreditCardAccountUpdated> ctx)
-    {
-        var payload = await payloadProvider.GetCreditCardAccountAsync(
-            ctx.Message.UserId,
-            ctx.Message.CreditCardAccountId,
-            ctx.CancellationToken);
-        await Push(
-            RealtimeEventType.CreditCardAccountUpdated,
-            ctx.Message.UserId,
-            ctx.Message.CreditCardAccountId,
-            payload,
-            ctx.CancellationToken);
-    }
-
-    public Task Consume(ConsumeContext<CreditCardAccountClosed> ctx) =>
-        Push(ctx, RealtimeEventType.CreditCardAccountClosed, ctx.Message.UserId, ctx.Message.CreditCardAccountId);
-
-    public Task Consume(ConsumeContext<CreditCardStateSeeded> ctx) =>
-        Push(ctx, RealtimeEventType.CreditCardStateSeeded, userId: null, ctx.Message.CreditCardAccountId);
-
-    public Task Consume(ConsumeContext<CreditCardStatementIssued> ctx) =>
-        Push(ctx, RealtimeEventType.CreditCardStatementIssued, userId: null, ctx.Message.CreditCardAccountId);
-
-    public Task Consume(ConsumeContext<CreditCardStatementPaymentApplied> ctx) =>
-        Push(ctx, RealtimeEventType.CreditCardStatementPaymentApplied, userId: null, ctx.Message.CreditCardAccountId);
 
     public Task Consume(ConsumeContext<ExpenseRecorded> ctx) =>
         Push(ctx, RealtimeEventType.ExpenseRecorded, ctx.Message.UserId, ctx.Message.ExpenseId);

@@ -13,9 +13,4 @@ public interface IExpensesRealtimePayloadProvider
         string userId,
         string fundingAccountId,
         CancellationToken ct = default);
-
-    Task<CreditCardAccountPayload> GetCreditCardAccountAsync(
-        string userId,
-        string creditCardAccountId,
-        CancellationToken ct = default);
 }

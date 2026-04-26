@@ -2,7 +2,6 @@ using MassTransit;
 using Microsoft.AspNetCore.SignalR;
 using NSubstitute;
 using WiSave.Expenses.Contracts.Events;
-using WiSave.Expenses.Contracts.Events.CreditCards;
 using WiSave.Expenses.Contracts.Events.Expenses;
 using WiSave.Expenses.Contracts.Events.FundingAccounts;
 using WiSave.Expenses.Contracts.Models;
@@ -92,68 +91,6 @@ public class NotificationConsumerEnvelopeTests
     }
 
     [Fact]
-    public async Task CreditCardAccountUpdated_sent_as_full_credit_card_account_payload()
-    {
-        var (hub, _, group) = CreateHub();
-        var payloadProvider = Substitute.For<IExpensesRealtimePayloadProvider>();
-        var consumer = new NotificationConsumer(hub, payloadProvider);
-
-        var userId = Guid.NewGuid().ToString();
-        var creditCardAccountId = Guid.NewGuid().ToString();
-        var payload = new CreditCardAccountPayload(
-            CreditCardAccountId: creditCardAccountId,
-            UserId: userId,
-            Name: "Millennium",
-            Currency: "PLN",
-            SettlementAccountId: "funding-1",
-            BankProvider: "MBank",
-            ProductCode: "visa-gold",
-            CreditLimit: 5000m,
-            StatementClosingDay: 16,
-            GracePeriodDays: 24,
-            UnbilledBalance: 340m,
-            ActiveStatementBalance: 1200m,
-            ActiveStatementOutstandingBalance: 900m,
-            ActiveStatementMinimumPaymentDue: 60m,
-            ActiveStatementDueDate: new DateOnly(2026, 5, 10),
-            ActiveStatementPeriodCloseDate: new DateOnly(2026, 4, 16),
-            Color: "#f59e0b",
-            LastFourDigits: "4532",
-            Timestamp: DateTimeOffset.UtcNow);
-
-        payloadProvider.GetCreditCardAccountAsync(userId, creditCardAccountId, Arg.Any<CancellationToken>())
-            .Returns(payload);
-
-        var msg = new CreditCardAccountUpdated(
-            CreditCardAccountId: creditCardAccountId,
-            UserId: userId,
-            Name: "Millennium",
-            Currency: Currency.PLN,
-            SettlementAccountId: "funding-1",
-            BankProvider: BankProvider.MBank,
-            ProductCode: "visa-gold",
-            CreditLimit: 5000m,
-            StatementClosingDay: 16,
-            GracePeriodDays: 24,
-            Color: "#f59e0b",
-            LastFourDigits: "4532",
-            Timestamp: DateTimeOffset.UtcNow);
-
-        var ctx = Substitute.For<ConsumeContext<CreditCardAccountUpdated>>();
-        ctx.Message.Returns(msg);
-        ctx.CancellationToken.Returns(CancellationToken.None);
-
-        await consumer.Consume(ctx);
-
-        var env = CaptureSentEnvelope(group);
-        Assert.Equal(RealtimeEventType.CreditCardAccountUpdated, env.EventType);
-        Assert.Equal(creditCardAccountId, env.EntityId);
-        var actualPayload = Assert.IsType<CreditCardAccountPayload>(env.Payload);
-        Assert.Equal("funding-1", actualPayload.SettlementAccountId);
-        Assert.Equal(900m, actualPayload.ActiveStatementOutstandingBalance);
-    }
-
-    [Fact]
     public async Task FundingTransferPosted_sent_as_transfer_event_with_funding_account_entityId()
     {
         var (hub, _, group) = CreateHub();
@@ -165,8 +102,8 @@ public class NotificationConsumerEnvelopeTests
             FundingAccountId: "funding-1",
             UserId: userId,
             TransferId: "transfer-1",
-            TargetCreditCardAccountId: "card-1",
-            StatementId: "statement-1",
+            null,
+            null,
             Amount: 500m,
             PostedAtUtc: DateTimeOffset.UtcNow,
             Timestamp: DateTimeOffset.UtcNow);
