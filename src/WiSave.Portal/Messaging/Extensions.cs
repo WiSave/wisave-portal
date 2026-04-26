@@ -14,7 +14,7 @@ public static class Extensions
         var expensesSettings = GetBusSettings(configuration, "Expenses", "expenses");
         var portalSettings = GetBusSettings(configuration, "Portal", "portal");
 
-        services.AddHttpClient<IAccountPayloadProvider, AccountPayloadProvider>((_, client) =>
+        services.AddHttpClient<IExpensesRealtimePayloadProvider, ExpensesRealtimePayloadProvider>((_, client) =>
         {
             client.BaseAddress = GetExpensesBaseAddress(configuration);
         });

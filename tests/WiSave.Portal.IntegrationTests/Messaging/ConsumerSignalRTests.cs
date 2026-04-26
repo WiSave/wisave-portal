@@ -11,8 +11,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using WiSave.Expenses.Contracts.Bus;
 using WiSave.Expenses.Contracts.Events;
-using WiSave.Expenses.Contracts.Events.Accounts;
+using WiSave.Expenses.Contracts.Events.CreditCards;
 using WiSave.Expenses.Contracts.Events.Expenses;
+using WiSave.Expenses.Contracts.Events.FundingAccounts;
 using WiSave.Expenses.Contracts.Models;
 using WiSave.Portal.Auth.Models;
 using WiSave.Portal.Contracts.Bus;
@@ -26,7 +27,7 @@ namespace WiSave.Portal.IntegrationTests.Messaging;
 public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>>, IAsyncLifetime
 {
     private readonly WebApplicationFactory<Program> _factory;
-    private readonly StubAccountPayloadProvider _accountPayloadProvider = new();
+    private readonly StubExpensesRealtimePayloadProvider _payloadProvider = new();
     private static CancellationToken CancellationToken => TestContext.Current.CancellationToken;
 
     public ConsumerSignalRTests(WebApplicationFactory<Program> factory)
@@ -39,8 +40,8 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
             builder.UseSetting("Redis:ConnectionString", "");
             builder.ConfigureTestServices(services =>
             {
-                services.RemoveAll<IAccountPayloadProvider>();
-                services.AddSingleton<IAccountPayloadProvider>(_accountPayloadProvider);
+                services.RemoveAll<IExpensesRealtimePayloadProvider>();
+                services.AddSingleton<IExpensesRealtimePayloadProvider>(_payloadProvider);
             });
         });
     }
@@ -162,7 +163,7 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
         await PublishOnExpensesBus(new CommandFailed(
             CorrelationId: correlationId,
             UserId: userId,
-            CommandType: "RecordExpense",
+            CommandType: "PostFundingTransfer",
             Reason: "Insufficient funds",
             Timestamp: DateTimeOffset.UtcNow
         ));
@@ -171,7 +172,7 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
         Assert.Equal("command.failed", envelope.GetProperty("eventType").GetString());
         Assert.True(envelope.GetProperty("entityId").ValueKind == JsonValueKind.Null);
         var payload = envelope.GetProperty("payload");
-        Assert.Equal("RecordExpense", payload.GetProperty("commandType").GetString());
+        Assert.Equal("PostFundingTransfer", payload.GetProperty("commandType").GetString());
         Assert.Equal("Insufficient funds", payload.GetProperty("reason").GetString());
 
         await connection.StopAsync(CancellationToken);
@@ -179,119 +180,145 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
-    public async Task AccountOpened_IsPushedToSignalRClient()
+    public async Task FundingAccountOpened_IsPushedToSignalRClient()
     {
         var (connection, userId) = await CreateAuthenticatedHubConnection("account@example.com");
-        _accountPayloadProvider.Set(new AccountPayload(
-            AccountId: "acc-42",
+        _payloadProvider.Set(new FundingAccountPayload(
+            FundingAccountId: "funding-42",
             UserId: userId,
-            Name: "Main Account",
-            Type: "CreditCard",
-            Variant: null,
+            Name: "Main funding account",
+            Kind: "BankAccount",
             Currency: "PLN",
-            Balance: null,
-            LinkedBankAccountId: "bank-1",
-            CreditLimit: 5000m,
-            BillingCycleDay: 16,
-            PreviousCycleDebt: 1200m,
-            CurrentCycleDebt: 340m,
+            Balance: 1000m,
             Color: "#FF0000",
-            LastFourDigits: "1234",
             Timestamp: DateTimeOffset.UtcNow));
 
         var tcs = new TaskCompletionSource<JsonElement>();
         connection.On<JsonElement>("realtimeEvent", envelope =>
         {
-            if (envelope.GetProperty("eventType").GetString() == "account.opened")
+            if (envelope.GetProperty("eventType").GetString() == "fundingAccount.opened")
                 tcs.TrySetResult(envelope);
         });
 
         await connection.StartAsync(CancellationToken);
 
-        await PublishOnExpensesBus(new AccountOpened(
-            AccountId: "acc-42",
+        await PublishOnExpensesBus(new FundingAccountOpened(
+            FundingAccountId: "funding-42",
             UserId: userId,
-            Name: "Main Account",
-            Type: AccountType.BankAccount,
+            Name: "Main funding account",
+            Kind: FundingAccountKind.BankAccount,
             Currency: Currency.PLN,
-            Balance: 1000m,
-            LinkedBankAccountId: null,
-            CreditLimit: null,
-            BillingCycleDay: null,
+            OpeningBalance: 1000m,
             Color: "#FF0000",
-            LastFourDigits: "1234",
             Timestamp: DateTimeOffset.UtcNow
         ));
 
         var envelope = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
-        Assert.Equal("account.opened", envelope.GetProperty("eventType").GetString());
-        Assert.Equal("acc-42", envelope.GetProperty("entityId").GetString());
+        Assert.Equal("fundingAccount.opened", envelope.GetProperty("eventType").GetString());
+        Assert.Equal("funding-42", envelope.GetProperty("entityId").GetString());
         var payload = envelope.GetProperty("payload");
-        Assert.Equal("acc-42", payload.GetProperty("accountId").GetString());
-        Assert.Equal("Main Account", payload.GetProperty("name").GetString());
-        Assert.Equal("CreditCard", payload.GetProperty("type").GetString());
-        Assert.True(payload.GetProperty("variant").ValueKind == JsonValueKind.Null);
-        Assert.Equal(1200m, payload.GetProperty("previousCycleDebt").GetDecimal());
-        Assert.Equal(340m, payload.GetProperty("currentCycleDebt").GetDecimal());
-        Assert.Equal("bank-1", payload.GetProperty("linkedBankAccountId").GetString());
+        Assert.Equal("funding-42", payload.GetProperty("fundingAccountId").GetString());
+        Assert.Equal("Main funding account", payload.GetProperty("name").GetString());
+        Assert.Equal("BankAccount", payload.GetProperty("kind").GetString());
+        Assert.Equal(1000m, payload.GetProperty("balance").GetDecimal());
 
         await connection.StopAsync(CancellationToken);
         await connection.DisposeAsync();
     }
 
     [Fact]
-    public async Task AccountUpdated_IsPushedToSignalRClient_AsFullSnapshot()
+    public async Task CreditCardAccountUpdated_IsPushedToSignalRClient_AsFullSnapshot()
     {
         var (connection, userId) = await CreateAuthenticatedHubConnection("account-update@example.com");
-        _accountPayloadProvider.Set(new AccountPayload(
-            AccountId: "acc-77",
+        _payloadProvider.Set(new CreditCardAccountPayload(
+            CreditCardAccountId: "card-77",
             UserId: userId,
-            Name: "Travel Card",
-            Type: "DebitCard",
-            Variant: "standalone",
-            Currency: "EUR",
-            Balance: 250m,
-            LinkedBankAccountId: null,
-            CreditLimit: null,
-            BillingCycleDay: null,
-            PreviousCycleDebt: null,
-            CurrentCycleDebt: null,
-            Color: null,
+            Name: "Credit card account",
+            Currency: "PLN",
+            SettlementAccountId: "funding-42",
+            BankProvider: "MBank",
+            ProductCode: "visa-gold",
+            CreditLimit: 5000m,
+            StatementClosingDay: 16,
+            GracePeriodDays: 24,
+            UnbilledBalance: 250m,
+            ActiveStatementBalance: 1200m,
+            ActiveStatementOutstandingBalance: 900m,
+            ActiveStatementMinimumPaymentDue: 60m,
+            ActiveStatementDueDate: new DateOnly(2026, 5, 10),
+            ActiveStatementPeriodCloseDate: new DateOnly(2026, 4, 16),
+            Color: "#f59e0b",
             LastFourDigits: "8812",
             Timestamp: DateTimeOffset.UtcNow));
 
         var tcs = new TaskCompletionSource<JsonElement>();
         connection.On<JsonElement>("realtimeEvent", envelope =>
         {
-            if (envelope.GetProperty("eventType").GetString() == "account.updated")
+            if (envelope.GetProperty("eventType").GetString() == "creditCardAccount.updated")
                 tcs.TrySetResult(envelope);
         });
 
         await connection.StartAsync(CancellationToken);
 
-        await PublishOnExpensesBus(new AccountUpdated(
-            AccountId: "acc-77",
+        await PublishOnExpensesBus(new CreditCardAccountUpdated(
+            CreditCardAccountId: "card-77",
             UserId: userId,
-            Name: "Travel Card",
-            Type: AccountType.DebitCard,
-            Currency: Currency.EUR,
-            Balance: 250m,
-            LinkedBankAccountId: null,
-            CreditLimit: null,
-            BillingCycleDay: null,
-            Color: null,
+            Name: "Credit card account",
+            Currency: Currency.PLN,
+            SettlementAccountId: "funding-42",
+            BankProvider: BankProvider.MBank,
+            ProductCode: "visa-gold",
+            CreditLimit: 5000m,
+            StatementClosingDay: 16,
+            GracePeriodDays: 24,
+            Color: "#f59e0b",
             LastFourDigits: "8812",
             Timestamp: DateTimeOffset.UtcNow
         ));
 
         var envelope = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
-        Assert.Equal("account.updated", envelope.GetProperty("eventType").GetString());
-        Assert.Equal("acc-77", envelope.GetProperty("entityId").GetString());
+        Assert.Equal("creditCardAccount.updated", envelope.GetProperty("eventType").GetString());
+        Assert.Equal("card-77", envelope.GetProperty("entityId").GetString());
         var payload = envelope.GetProperty("payload");
-        Assert.Equal("DebitCard", payload.GetProperty("type").GetString());
-        Assert.Equal("standalone", payload.GetProperty("variant").GetString());
-        Assert.Equal(250m, payload.GetProperty("balance").GetDecimal());
-        Assert.True(payload.GetProperty("linkedBankAccountId").ValueKind == JsonValueKind.Null);
+        Assert.Equal("funding-42", payload.GetProperty("settlementAccountId").GetString());
+        Assert.Equal("MBank", payload.GetProperty("bankProvider").GetString());
+        Assert.Equal(900m, payload.GetProperty("activeStatementOutstandingBalance").GetDecimal());
+
+        await connection.StopAsync(CancellationToken);
+        await connection.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task FundingTransferPosted_IsPushedToSignalRClient()
+    {
+        var (connection, userId) = await CreateAuthenticatedHubConnection("transfer@example.com");
+
+        var tcs = new TaskCompletionSource<JsonElement>();
+        connection.On<JsonElement>("realtimeEvent", envelope =>
+        {
+            if (envelope.GetProperty("eventType").GetString() == "fundingTransfer.posted")
+                tcs.TrySetResult(envelope);
+        });
+
+        await connection.StartAsync(CancellationToken);
+
+        await PublishOnExpensesBus(new FundingTransferPosted(
+            FundingAccountId: "funding-42",
+            UserId: userId,
+            TransferId: "transfer-1",
+            TargetCreditCardAccountId: "card-77",
+            StatementId: "statement-1",
+            Amount: 500m,
+            PostedAtUtc: DateTimeOffset.UtcNow,
+            Timestamp: DateTimeOffset.UtcNow
+        ));
+
+        var envelope = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
+        Assert.Equal("fundingTransfer.posted", envelope.GetProperty("eventType").GetString());
+        Assert.Equal("funding-42", envelope.GetProperty("entityId").GetString());
+        var payload = envelope.GetProperty("payload");
+        Assert.Equal("transfer-1", payload.GetProperty("transferId").GetString());
+        Assert.Equal("card-77", payload.GetProperty("targetCreditCardAccountId").GetString());
 
         await connection.StopAsync(CancellationToken);
         await connection.DisposeAsync();
@@ -382,18 +409,41 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
         }
     }
 
-    private sealed class StubAccountPayloadProvider : IAccountPayloadProvider
+    private sealed class StubExpensesRealtimePayloadProvider : IExpensesRealtimePayloadProvider
     {
-        private readonly Dictionary<string, AccountPayload> _payloads = [];
+        private readonly Dictionary<string, FundingAccountPayload> _fundingAccounts = [];
+        private readonly Dictionary<string, CreditCardAccountPayload> _creditCardAccounts = [];
 
-        public void Set(AccountPayload payload) => _payloads[payload.AccountId] = payload;
+        public void Set(FundingAccountPayload payload) => _fundingAccounts[payload.FundingAccountId] = payload;
 
-        public Task<AccountPayload> GetAsync(string userId, string accountId, CancellationToken ct = default)
+        public void Set(CreditCardAccountPayload payload) => _creditCardAccounts[payload.CreditCardAccountId] = payload;
+
+        public Task<FundingAccountPayload> GetFundingAccountAsync(
+            string userId,
+            string fundingAccountId,
+            CancellationToken ct = default)
         {
-            if (_payloads.TryGetValue(accountId, out var payload))
+            if (_fundingAccounts.TryGetValue(fundingAccountId, out var payload))
                 return Task.FromResult(payload);
 
-            throw new InvalidOperationException($"Missing test payload for account '{accountId}'.");
+            throw new InvalidOperationException($"Missing test payload for funding account '{fundingAccountId}'.");
+        }
+
+        public Task<IReadOnlyList<FundingPaymentInstrumentPayload>> GetFundingPaymentInstrumentsAsync(
+            string userId,
+            string fundingAccountId,
+            CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<FundingPaymentInstrumentPayload>>([]);
+
+        public Task<CreditCardAccountPayload> GetCreditCardAccountAsync(
+            string userId,
+            string creditCardAccountId,
+            CancellationToken ct = default)
+        {
+            if (_creditCardAccounts.TryGetValue(creditCardAccountId, out var payload))
+                return Task.FromResult(payload);
+
+            throw new InvalidOperationException($"Missing test payload for credit card account '{creditCardAccountId}'.");
         }
     }
 }

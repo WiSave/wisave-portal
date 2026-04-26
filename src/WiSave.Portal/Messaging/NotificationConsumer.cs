@@ -1,9 +1,10 @@
 using MassTransit;
 using Microsoft.AspNetCore.SignalR;
 using WiSave.Expenses.Contracts.Events;
-using WiSave.Expenses.Contracts.Events.Accounts;
 using WiSave.Expenses.Contracts.Events.Budgets;
+using WiSave.Expenses.Contracts.Events.CreditCards;
 using WiSave.Expenses.Contracts.Events.Expenses;
+using WiSave.Expenses.Contracts.Events.FundingAccounts;
 using WiSave.Portal.Hubs;
 using WiSave.Portal.Hubs.Realtime;
 
@@ -11,10 +12,20 @@ namespace WiSave.Portal.Messaging;
 
 public class NotificationConsumer(
     IHubContext<NotificationsHub> hub,
-    IAccountPayloadProvider accountPayloadProvider) :
-    IConsumer<AccountOpened>,
-    IConsumer<AccountUpdated>,
-    IConsumer<AccountClosed>,
+    IExpensesRealtimePayloadProvider payloadProvider) :
+    IConsumer<FundingAccountOpened>,
+    IConsumer<FundingAccountUpdated>,
+    IConsumer<FundingAccountClosed>,
+    IConsumer<FundingPaymentInstrumentAdded>,
+    IConsumer<FundingPaymentInstrumentUpdated>,
+    IConsumer<FundingPaymentInstrumentRemoved>,
+    IConsumer<FundingTransferPosted>,
+    IConsumer<CreditCardAccountOpened>,
+    IConsumer<CreditCardAccountUpdated>,
+    IConsumer<CreditCardAccountClosed>,
+    IConsumer<CreditCardStateSeeded>,
+    IConsumer<CreditCardStatementIssued>,
+    IConsumer<CreditCardStatementPaymentApplied>,
     IConsumer<ExpenseRecorded>,
     IConsumer<ExpenseUpdated>,
     IConsumer<ExpenseDeleted>,
@@ -25,20 +36,88 @@ public class NotificationConsumer(
     IConsumer<CategoryLimitRemoved>,
     IConsumer<CommandFailed>
 {
-    public async Task Consume(ConsumeContext<AccountOpened> ctx)
+    public async Task Consume(ConsumeContext<FundingAccountOpened> ctx)
     {
-        var payload = await accountPayloadProvider.GetAsync(ctx.Message.UserId, ctx.Message.AccountId, ctx.CancellationToken);
-        await PushAccount(RealtimeEventType.AccountOpened, payload, ctx.CancellationToken);
+        var payload = await payloadProvider.GetFundingAccountAsync(
+            ctx.Message.UserId,
+            ctx.Message.FundingAccountId,
+            ctx.CancellationToken);
+        await Push(
+            RealtimeEventType.FundingAccountOpened,
+            ctx.Message.UserId,
+            ctx.Message.FundingAccountId,
+            payload,
+            ctx.CancellationToken);
     }
 
-    public async Task Consume(ConsumeContext<AccountUpdated> ctx)
+    public async Task Consume(ConsumeContext<FundingAccountUpdated> ctx)
     {
-        var payload = await accountPayloadProvider.GetAsync(ctx.Message.UserId, ctx.Message.AccountId, ctx.CancellationToken);
-        await PushAccount(RealtimeEventType.AccountUpdated, payload, ctx.CancellationToken);
+        var payload = await payloadProvider.GetFundingAccountAsync(
+            ctx.Message.UserId,
+            ctx.Message.FundingAccountId,
+            ctx.CancellationToken);
+        await Push(
+            RealtimeEventType.FundingAccountUpdated,
+            ctx.Message.UserId,
+            ctx.Message.FundingAccountId,
+            payload,
+            ctx.CancellationToken);
     }
 
-    public Task Consume(ConsumeContext<AccountClosed> ctx) =>
-        Push(ctx, RealtimeEventType.AccountClosed, ctx.Message.UserId, ctx.Message.AccountId);
+    public Task Consume(ConsumeContext<FundingAccountClosed> ctx) =>
+        Push(ctx, RealtimeEventType.FundingAccountClosed, ctx.Message.UserId, ctx.Message.FundingAccountId);
+
+    public Task Consume(ConsumeContext<FundingPaymentInstrumentAdded> ctx) =>
+        Push(ctx, RealtimeEventType.FundingPaymentInstrumentAdded, ctx.Message.UserId, ctx.Message.PaymentInstrumentId);
+
+    public Task Consume(ConsumeContext<FundingPaymentInstrumentUpdated> ctx) =>
+        Push(ctx, RealtimeEventType.FundingPaymentInstrumentUpdated, ctx.Message.UserId, ctx.Message.PaymentInstrumentId);
+
+    public Task Consume(ConsumeContext<FundingPaymentInstrumentRemoved> ctx) =>
+        Push(ctx, RealtimeEventType.FundingPaymentInstrumentRemoved, ctx.Message.UserId, ctx.Message.PaymentInstrumentId);
+
+    public Task Consume(ConsumeContext<FundingTransferPosted> ctx) =>
+        Push(ctx, RealtimeEventType.FundingTransferPosted, ctx.Message.UserId, ctx.Message.FundingAccountId);
+
+    public async Task Consume(ConsumeContext<CreditCardAccountOpened> ctx)
+    {
+        var payload = await payloadProvider.GetCreditCardAccountAsync(
+            ctx.Message.UserId,
+            ctx.Message.CreditCardAccountId,
+            ctx.CancellationToken);
+        await Push(
+            RealtimeEventType.CreditCardAccountOpened,
+            ctx.Message.UserId,
+            ctx.Message.CreditCardAccountId,
+            payload,
+            ctx.CancellationToken);
+    }
+
+    public async Task Consume(ConsumeContext<CreditCardAccountUpdated> ctx)
+    {
+        var payload = await payloadProvider.GetCreditCardAccountAsync(
+            ctx.Message.UserId,
+            ctx.Message.CreditCardAccountId,
+            ctx.CancellationToken);
+        await Push(
+            RealtimeEventType.CreditCardAccountUpdated,
+            ctx.Message.UserId,
+            ctx.Message.CreditCardAccountId,
+            payload,
+            ctx.CancellationToken);
+    }
+
+    public Task Consume(ConsumeContext<CreditCardAccountClosed> ctx) =>
+        Push(ctx, RealtimeEventType.CreditCardAccountClosed, ctx.Message.UserId, ctx.Message.CreditCardAccountId);
+
+    public Task Consume(ConsumeContext<CreditCardStateSeeded> ctx) =>
+        Push(ctx, RealtimeEventType.CreditCardStateSeeded, userId: null, ctx.Message.CreditCardAccountId);
+
+    public Task Consume(ConsumeContext<CreditCardStatementIssued> ctx) =>
+        Push(ctx, RealtimeEventType.CreditCardStatementIssued, userId: null, ctx.Message.CreditCardAccountId);
+
+    public Task Consume(ConsumeContext<CreditCardStatementPaymentApplied> ctx) =>
+        Push(ctx, RealtimeEventType.CreditCardStatementPaymentApplied, userId: null, ctx.Message.CreditCardAccountId);
 
     public Task Consume(ConsumeContext<ExpenseRecorded> ctx) =>
         Push(ctx, RealtimeEventType.ExpenseRecorded, ctx.Message.UserId, ctx.Message.ExpenseId);
@@ -67,28 +146,27 @@ public class NotificationConsumer(
     public Task Consume(ConsumeContext<CommandFailed> ctx) =>
         Push(ctx, RealtimeEventType.CommandFailed, ctx.Message.UserId, entityId: null);
 
-    private Task PushAccount(string eventType, AccountPayload payload, CancellationToken cancellationToken)
-    {
-        var env = new RealtimeEnvelope(
-            EventId: Guid.CreateVersion7(),
-            Domain: "expenses",
-            EventType: eventType,
-            OccurredAt: DateTime.UtcNow,
-            EntityId: payload.AccountId,
-            Payload: payload);
-        return hub.Clients.Group(payload.UserId).SendAsync("realtimeEvent", env, cancellationToken);
-    }
+    private Task Push<T>(ConsumeContext<T> ctx, string eventType, string? userId, string? entityId)
+        where T : class =>
+        Push(eventType, userId, entityId, ctx.Message!, ctx.CancellationToken);
 
-    private Task Push<T>(ConsumeContext<T> ctx, string eventType, string userId, string? entityId)
-        where T : class
+    private Task Push(
+        string eventType,
+        string? userId,
+        string? entityId,
+        object payload,
+        CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(userId))
+            return Task.CompletedTask;
+
         var env = new RealtimeEnvelope(
             EventId: Guid.CreateVersion7(),
             Domain: "expenses",
             EventType: eventType,
             OccurredAt: DateTime.UtcNow,
             EntityId: entityId,
-            Payload: ctx.Message!);
-        return hub.Clients.Group(userId).SendAsync("realtimeEvent", env, ctx.CancellationToken);
+            Payload: payload);
+        return hub.Clients.Group(userId).SendAsync("realtimeEvent", env, cancellationToken);
     }
 }
