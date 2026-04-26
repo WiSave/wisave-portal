@@ -1,29 +1,11 @@
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using WiSave.Portal.Auth.Models;
 using WiSave.Portal.Authorization;
-using WiSave.Portal.Infrastructure.Database;
+using WiSave.Portal.Filters;
 
 namespace WiSave.Portal.Endpoints;
-
-internal sealed class AntiforgeryValidationFilter : IEndpointFilter
-{
-    public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
-    {
-        var antiforgery = context.HttpContext.RequestServices.GetRequiredService<IAntiforgery>();
-        try
-        {
-            await antiforgery.ValidateRequestAsync(context.HttpContext);
-        }
-        catch (AntiforgeryValidationException)
-        {
-            return Results.BadRequest("Antiforgery token validation failed.");
-        }
-        return await next(context);
-    }
-}
 
 public static class AuthEndpoints
 {
@@ -52,6 +34,14 @@ public static class AuthEndpoints
             .Produces(204)
             .WithSummary("Clear session");
 
+        group.MapPost("/change-password", ChangePassword)
+            .AddEndpointFilter<AntiforgeryValidationFilter>()
+            .RequireAuthorization()
+            .Produces(204)
+            .ProducesValidationProblem()
+            .Produces(401)
+            .WithSummary("Change the current user's password");
+
         group.MapGet("/me", Me)
             .RequireAuthorization()
             .Produces<UserResponse>()
@@ -74,23 +64,20 @@ public static class AuthEndpoints
         SignInManager<ApplicationUser> signInManager,
         IAntiforgery antiforgery,
         HttpContext context,
-        PortalDbContext db,
-        UserPlanCache userPlanCache,
-        PlanPermissionCache planPermissionCache)
+        RolePermissionResolver rolePermissionResolver,
+        RoleManager<IdentityRole> roleManager)
     {
-        var planId = string.IsNullOrWhiteSpace(request.PlanId) ? "free" : request.PlanId;
-        var planExists = await db.Plans.AnyAsync(p => p.Id == planId && p.IsActive);
-        if (!planExists)
+        var planRole = PortalRoles.NormalizePlanInput(request.PlanId);
+        if (!PortalRoles.IsPlanRole(planRole) || !await roleManager.RoleExistsAsync(planRole))
         {
-            return Results.BadRequest(new { errors = new[] { $"Plan '{planId}' does not exist." } });
+            return Results.BadRequest(new { errors = new[] { $"Plan '{request.PlanId}' does not exist." } });
         }
 
         var user = new ApplicationUser
         {
             Name = request.Name,
             Email = request.Email,
-            UserName = request.Email,
-            PlanId = planId
+            UserName = request.Email
         };
 
         var result = await userManager.CreateAsync(user, request.Password);
@@ -100,14 +87,18 @@ public static class AuthEndpoints
             return Results.BadRequest(new { errors = result.Errors.Select(e => e.Description) });
         }
 
-        await userManager.AddToRoleAsync(user, "user");
+        var roleResult = await userManager.AddToRoleAsync(user, planRole);
+        if (!roleResult.Succeeded)
+        {
+            return Results.BadRequest(new { errors = roleResult.Errors.Select(e => e.Description) });
+        }
 
         await signInManager.SignInAsync(user, isPersistent: true);
 
         SetXsrfTokenCookie(antiforgery, context);
 
-        var permissions = await ResolvePermissionsAsync(user.Id, userManager, userPlanCache, planPermissionCache);
-        var response = new AuthResponse(new UserResponse(user.Id, user.Name, user.Email!, permissions));
+        var permissions = await rolePermissionResolver.GetPermissionsAsync(user);
+        var response = new AuthResponse(new UserResponse(user.Id, user.Name, user.Email!, [.. permissions]));
         return Results.Ok(response);
     }
 
@@ -117,8 +108,7 @@ public static class AuthEndpoints
         SignInManager<ApplicationUser> signInManager,
         IAntiforgery antiforgery,
         HttpContext context,
-        UserPlanCache userPlanCache,
-        PlanPermissionCache planPermissionCache)
+        RolePermissionResolver rolePermissionResolver)
     {
         var normalized = userManager.NormalizeEmail(request.Email);
         var user = await userManager.FindByEmailAsync(normalized);
@@ -154,8 +144,8 @@ public static class AuthEndpoints
 
         SetXsrfTokenCookie(antiforgery, context);
 
-        var permissions = await ResolvePermissionsAsync(user.Id, userManager, userPlanCache, planPermissionCache);
-        var response = new AuthResponse(new UserResponse(user.Id, user.Name, user.Email!, permissions));
+        var permissions = await rolePermissionResolver.GetPermissionsAsync(user);
+        var response = new AuthResponse(new UserResponse(user.Id, user.Name, user.Email!, [.. permissions]));
         return Results.Ok(response);
     }
 
@@ -169,11 +159,30 @@ public static class AuthEndpoints
         return Results.NoContent();
     }
 
+    private static async Task<IResult> ChangePassword(
+        ChangePasswordRequest request,
+        HttpContext context,
+        UserManager<ApplicationUser> userManager)
+    {
+        var userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null)
+            return Results.Unauthorized();
+
+        var user = await userManager.FindByIdAsync(userId);
+        if (user is null)
+            return Results.Unauthorized();
+
+        var result = await userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
+        if (!result.Succeeded)
+            return Results.BadRequest(new { errors = result.Errors.Select(error => error.Description) });
+
+        return Results.NoContent();
+    }
+
     private static async Task<IResult> Me(
         HttpContext context,
         UserManager<ApplicationUser> userManager,
-        UserPlanCache userPlanCache,
-        PlanPermissionCache planPermissionCache)
+        RolePermissionResolver rolePermissionResolver)
     {
         var userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
 
@@ -189,8 +198,8 @@ public static class AuthEndpoints
             return Results.Unauthorized();
         }
 
-        var permissions = await ResolvePermissionsAsync(user.Id, userManager, userPlanCache, planPermissionCache);
-        var response = new UserResponse(user.Id, user.Name, user.Email!, permissions);
+        var permissions = await rolePermissionResolver.GetPermissionsAsync(user);
+        var response = new UserResponse(user.Id, user.Name, user.Email!, [.. permissions]);
         return Results.Ok(response);
     }
 
@@ -210,26 +219,6 @@ public static class AuthEndpoints
             Secure = context.Request.IsHttps,
             Path = "/",
         });
-    }
-
-    private static async Task<string[]> ResolvePermissionsAsync(
-        string userId,
-        UserManager<ApplicationUser> userManager,
-        UserPlanCache userPlanCache,
-        PlanPermissionCache planPermissionCache)
-    {
-        var user = await userManager.FindByIdAsync(userId);
-        if (user is null) return [];
-
-        var roles = await userManager.GetRolesAsync(user);
-        if (roles.Any(r => r is "superadmin" or "admin"))
-            return ["*"];
-
-        var planId = await userPlanCache.GetPlanIdAsync(userId);
-        if (planId is null) return [];
-
-        var permissions = await planPermissionCache.GetPermissionsAsync(planId);
-        return [.. permissions];
     }
 
     private static IResult UnauthorizedError(string code, string message) =>

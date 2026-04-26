@@ -1,12 +1,15 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Identity;
+using WiSave.Portal.Auth.Models;
 
 namespace WiSave.Portal.Authorization;
 
 public class PermissionResolutionMiddleware(RequestDelegate next)
 {
-    private static readonly HashSet<string> AdminRoles = ["superadmin", "admin"];
-
-    public async Task InvokeAsync(HttpContext context, UserPlanCache userPlanCache, PlanPermissionCache planPermissionCache)
+    public async Task InvokeAsync(
+        HttpContext context,
+        UserManager<ApplicationUser> userManager,
+        RolePermissionResolver rolePermissionResolver)
     {
         if (context.User.Identity?.IsAuthenticated != true)
         {
@@ -20,24 +23,15 @@ public class PermissionResolutionMiddleware(RequestDelegate next)
             await next(context);
             return;
         }
-        
-        var roles = context.User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToHashSet();
-        if (roles.Overlaps(AdminRoles))
-        {
-            context.Items["UserPermissions"] = new HashSet<string> { "*" };
-            await next(context);
-            return;
-        }
-        
-        var planId = await userPlanCache.GetPlanIdAsync(userId);
-        if (planId is null)
+
+        var user = await userManager.FindByIdAsync(userId);
+        if (user is null)
         {
             await next(context);
             return;
         }
 
-        var permissions = await planPermissionCache.GetPermissionsAsync(planId);
-        context.Items["UserPermissions"] = permissions;
+        context.Items["UserPermissions"] = await rolePermissionResolver.GetPermissionsAsync(user);
 
         await next(context);
     }

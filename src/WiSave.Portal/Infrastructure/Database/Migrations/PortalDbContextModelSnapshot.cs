@@ -18,7 +18,7 @@ namespace WiSave.Portal.Infrastructure.Database.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("public")
-                .HasAnnotation("ProductVersion", "10.0.5")
+                .HasAnnotation("ProductVersion", "10.0.7")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -201,13 +201,6 @@ namespace WiSave.Portal.Infrastructure.Database.Migrations
                     b.Property<bool>("PhoneNumberConfirmed")
                         .HasColumnType("boolean");
 
-                    b.Property<string>("PlanId")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasDefaultValue("free");
-
                     b.Property<string>("SecurityStamp")
                         .HasColumnType("text");
 
@@ -228,62 +221,6 @@ namespace WiSave.Portal.Infrastructure.Database.Migrations
                         .HasDatabaseName("UserNameIndex");
 
                     b.ToTable("AspNetUsers", "public");
-                });
-
-            modelBuilder.Entity("WiSave.Portal.Auth.Models.Permission", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Name")
-                        .IsUnique();
-
-                    b.ToTable("Permissions", "public");
-                });
-
-            modelBuilder.Entity("WiSave.Portal.Auth.Models.Plan", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("Plans", "public");
-                });
-
-            modelBuilder.Entity("WiSave.Portal.Auth.Models.PlanPermission", b =>
-                {
-                    b.Property<string>("PlanId")
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<Guid>("PermissionId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("PlanId", "PermissionId");
-
-                    b.HasIndex("PermissionId");
-
-                    b.ToTable("PlanPermissions", "public");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
@@ -335,35 +272,6 @@ namespace WiSave.Portal.Infrastructure.Database.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-                });
-
-            modelBuilder.Entity("WiSave.Portal.Auth.Models.PlanPermission", b =>
-                {
-                    b.HasOne("WiSave.Portal.Auth.Models.Permission", "Permission")
-                        .WithMany("PlanPermissions")
-                        .HasForeignKey("PermissionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("WiSave.Portal.Auth.Models.Plan", "Plan")
-                        .WithMany("PlanPermissions")
-                        .HasForeignKey("PlanId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Permission");
-
-                    b.Navigation("Plan");
-                });
-
-            modelBuilder.Entity("WiSave.Portal.Auth.Models.Permission", b =>
-                {
-                    b.Navigation("PlanPermissions");
-                });
-
-            modelBuilder.Entity("WiSave.Portal.Auth.Models.Plan", b =>
-                {
-                    b.Navigation("PlanPermissions");
                 });
 #pragma warning restore 612, 618
         }

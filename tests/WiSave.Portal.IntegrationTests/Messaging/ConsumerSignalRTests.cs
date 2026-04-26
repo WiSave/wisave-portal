@@ -6,7 +6,6 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using WiSave.Expenses.Contracts.Bus;
@@ -15,8 +14,8 @@ using WiSave.Expenses.Contracts.Events.Expenses;
 using WiSave.Expenses.Contracts.Events.FundingAccounts;
 using WiSave.Expenses.Contracts.Models;
 using WiSave.Portal.Auth.Models;
+using WiSave.Portal.Authorization;
 using WiSave.Portal.Contracts.Bus;
-using WiSave.Portal.Contracts.Authorization;
 using WiSave.Portal.Hubs.Realtime;
 using WiSave.Portal.Messaging;
 using Xunit;
@@ -49,43 +48,10 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
     {
         using var scope = _factory.Services.CreateScope();
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
-        foreach (var role in new[] { "superadmin", "admin", "user" })
+        foreach (var role in PortalRoles.AdminRoles.Concat(PortalRoles.PlanRoles))
         {
             if (!await roleManager.RoleExistsAsync(role))
                 await roleManager.CreateAsync(new IdentityRole(role));
-        }
-
-        var db = scope.ServiceProvider.GetRequiredService<Infrastructure.Database.PortalDbContext>();
-        if (!await db.Plans.AnyAsync())
-        {
-            db.Plans.AddRange(
-                new Plan { Id = "free", Name = "Free" },
-                new Plan { Id = "standard", Name = "Standard" },
-                new Plan { Id = "premium", Name = "Premium" }
-            );
-            await db.SaveChangesAsync();
-        }
-
-        if (!await db.Permissions.AnyAsync())
-        {
-            var permissions = new[]
-            {
-                new Permission { Id = Guid.Parse("a3000000-0000-0000-0000-000000000001"), Name = PortalPermissions.Expenses.Read },
-                new Permission { Id = Guid.Parse("a3000000-0000-0000-0000-000000000002"), Name = PortalPermissions.Expenses.Write },
-                new Permission { Id = Guid.Parse("a3000000-0000-0000-0000-000000000003"), Name = PortalPermissions.Expenses.Delete },
-            };
-            db.Permissions.AddRange(permissions);
-            await db.SaveChangesAsync();
-
-            db.PlanPermissions.AddRange(
-                new PlanPermission { PlanId = "free", PermissionId = permissions[0].Id },
-                new PlanPermission { PlanId = "standard", PermissionId = permissions[0].Id },
-                new PlanPermission { PlanId = "standard", PermissionId = permissions[1].Id },
-                new PlanPermission { PlanId = "premium", PermissionId = permissions[0].Id },
-                new PlanPermission { PlanId = "premium", PermissionId = permissions[1].Id },
-                new PlanPermission { PlanId = "premium", PermissionId = permissions[2].Id }
-            );
-            await db.SaveChangesAsync();
         }
     }
 

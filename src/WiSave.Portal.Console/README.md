@@ -15,6 +15,8 @@ Direct command execution:
 ```bash
 dotnet run --project src/WiSave.Portal.Console -- db-migrate
 dotnet run --project src/WiSave.Portal.Console -- db-migrate --connection-string "Host=localhost;Database=wisave_portal;Username=wisave;Password=wisave_dev"
+dotnet run --project src/WiSave.Portal.Console -- db-seed
+dotnet run --project src/WiSave.Portal.Console -- db-seed --connection-string "Host=localhost;Database=wisave_portal;Username=wisave;Password=wisave_dev"
 ```
 
 ## Add a new command

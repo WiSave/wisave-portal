@@ -32,6 +32,7 @@ app.UsePortalAuthorization();
 app.UseAntiforgery();
 
 app.MapAuthEndpoints();
+app.MapAdminAccessManagementEndpoints();
 app.MapPortalHubs();
 app.MapPortalReverseProxy();
 

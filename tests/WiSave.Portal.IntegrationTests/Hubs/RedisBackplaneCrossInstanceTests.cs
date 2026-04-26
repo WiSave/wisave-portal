@@ -5,10 +5,10 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
 using WiSave.Portal.Auth.Models;
+using WiSave.Portal.Authorization;
 using WiSave.Portal.Hubs;
 using WiSave.Portal.Hubs.Realtime;
 using Xunit;
@@ -109,21 +109,10 @@ public class RedisBackplaneCrossInstanceTests : IAsyncLifetime
     {
         using var scope = factory.Services.CreateScope();
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
-        foreach (var role in new[] { "superadmin", "admin", "user" })
+        foreach (var role in PortalRoles.AdminRoles.Concat(PortalRoles.PlanRoles))
         {
             if (!await roleManager.RoleExistsAsync(role))
                 await roleManager.CreateAsync(new IdentityRole(role));
-        }
-
-        var db = scope.ServiceProvider.GetRequiredService<Infrastructure.Database.PortalDbContext>();
-        if (!await db.Plans.AnyAsync(TestContext.Current.CancellationToken))
-        {
-            db.Plans.AddRange(
-                new Plan { Id = "free", Name = "Free" },
-                new Plan { Id = "standard", Name = "Standard" },
-                new Plan { Id = "premium", Name = "Premium" }
-            );
-            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
     }
 
