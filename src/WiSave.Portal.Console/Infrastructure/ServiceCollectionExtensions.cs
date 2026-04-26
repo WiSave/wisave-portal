@@ -19,6 +19,7 @@ internal static class ServiceCollectionExtensions
         services.AddSingleton<IConsoleApplication, ConsoleApplication>();
 
         services.AddSingleton<IDatabaseMigrationOperations, DatabaseMigrationOperations>();
+        services.AddSingleton<IDatabaseSeedOperations, DatabaseSeedOperations>();
 
         RegisterCommands(services, typeof(ServiceCollectionExtensions).Assembly);
 

@@ -1,16 +1,18 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using WiSave.Portal.Auth.Models;
+using WiSave.Portal.Authorization;
 using WiSave.Portal.Contracts.Authorization;
 using WiSave.Portal.Contracts.Identity;
 using Xunit;
@@ -51,42 +53,29 @@ public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : 
     private async Task SeedRolesAsync()
     {
         using var scope = _factory.Services.CreateScope();
-        var roleManager = scope.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.RoleManager<Microsoft.AspNetCore.Identity.IdentityRole>>();
-        foreach (var role in new[] { "superadmin", "admin", "user" })
+        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+        foreach (var role in PortalRoles.AdminRoles.Concat(PortalRoles.PlanRoles))
         {
             if (!await roleManager.RoleExistsAsync(role))
-                await roleManager.CreateAsync(new Microsoft.AspNetCore.Identity.IdentityRole(role));
+                await roleManager.CreateAsync(new IdentityRole(role));
         }
 
-        var db = scope.ServiceProvider.GetRequiredService<WiSave.Portal.Infrastructure.Database.PortalDbContext>();
-        if (!await db.Plans.AnyAsync())
-        {
-            db.Plans.AddRange(
-                new WiSave.Portal.Auth.Models.Plan { Id = "free", Name = "Free" },
-                new WiSave.Portal.Auth.Models.Plan { Id = "standard", Name = "Standard" },
-                new WiSave.Portal.Auth.Models.Plan { Id = "premium", Name = "Premium" }
-            );
-            await db.SaveChangesAsync();
-        }
+        await EnsurePermissionClaimAsync(roleManager, PortalRoles.FreePlan, PortalPermissions.Incomes.Read);
+        await EnsurePermissionClaimAsync(roleManager, PortalRoles.StandardPlan, PortalPermissions.Incomes.Read);
+        await EnsurePermissionClaimAsync(roleManager, PortalRoles.StandardPlan, PortalPermissions.Incomes.Write);
+        await EnsurePermissionClaimAsync(roleManager, PortalRoles.PremiumPlan, PortalPermissions.Incomes.Read);
+        await EnsurePermissionClaimAsync(roleManager, PortalRoles.PremiumPlan, PortalPermissions.Incomes.Write);
+        await EnsurePermissionClaimAsync(roleManager, PortalRoles.PremiumPlan, PortalPermissions.Incomes.Delete);
+    }
 
-        if (!await db.Permissions.AnyAsync())
-        {
-            var incomesRead = new WiSave.Portal.Auth.Models.Permission
-            {
-                Id = Guid.Parse("a1000000-0000-0000-0000-000000000001"),
-                Name = PortalPermissions.Incomes.Read,
-                Description = "View incomes"
-            };
-            db.Permissions.Add(incomesRead);
-            await db.SaveChangesAsync();
+    private static async Task EnsurePermissionClaimAsync(RoleManager<IdentityRole> roleManager, string roleName, string permission)
+    {
+        var role = await roleManager.FindByNameAsync(roleName);
+        Assert.NotNull(role);
 
-            db.PlanPermissions.Add(new WiSave.Portal.Auth.Models.PlanPermission
-            {
-                PlanId = "free",
-                PermissionId = incomesRead.Id
-            });
-            await db.SaveChangesAsync();
-        }
+        var claims = await roleManager.GetClaimsAsync(role);
+        if (!claims.Any(c => c.Type == PortalClaimTypes.Permission && c.Value == permission))
+            await roleManager.AddClaimAsync(role, new Claim(PortalClaimTypes.Permission, permission));
     }
 
     [Fact]
@@ -134,8 +123,38 @@ public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : 
         Assert.NotNull(forwarded);
         Assert.Equal(auth.User.Id, GetHeaderValue(forwarded, PortalHeaderNames.UserId));
         Assert.Equal(auth.User.Email, GetHeaderValue(forwarded, PortalHeaderNames.UserEmail));
-        // Spoofed "admin" role should be overwritten with actual "user" role
-        Assert.Equal("user", GetHeaderValue(forwarded, PortalHeaderNames.UserRoles));
+        Assert.Equal(PortalRoles.FreePlan, GetHeaderValue(forwarded, PortalHeaderNames.UserRoles));
+    }
+
+    [Fact]
+    public async Task ProxiedRequest_Authenticated_ForwardsPlanPermissions()
+    {
+        var client = CreateClientWithCookies();
+        await RegisterAsync(client, "Permission User", "permissions@example.com", "standard");
+
+        var response = await client.GetAsync("/api/incomes", CancellationToken);
+        var forwarded = await response.Content.ReadFromJsonAsync<ForwardedRequest>(CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(forwarded);
+        var permissions = GetHeaderValue(forwarded, PortalHeaderNames.UserPermissions).Split(',');
+        Assert.Contains(PortalPermissions.Incomes.Read, permissions);
+        Assert.Contains(PortalPermissions.Incomes.Write, permissions);
+    }
+
+    [Fact]
+    public async Task ProxiedRequest_AdminUser_ForwardsWildcardPermissions()
+    {
+        var client = CreateClientWithCookies();
+        await RegisterAsync(client, "Admin User", "admin-user@example.com", "free");
+        await AddUserToRoleAsync("admin-user@example.com", PortalRoles.Admin);
+
+        var response = await client.GetAsync("/api/incomes", CancellationToken);
+        var forwarded = await response.Content.ReadFromJsonAsync<ForwardedRequest>(CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(forwarded);
+        Assert.Equal("*", GetHeaderValue(forwarded, PortalHeaderNames.UserPermissions));
     }
 
     [Fact]
@@ -170,11 +189,9 @@ public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : 
         Assert.Equal("/incomes", forwarded.Path);
     }
 
-    // Creates an HttpClient backed by a CookieContainer (via CookieDelegatingHandler) so
-    // that session cookies are sent on every request for authenticated flows.
     private HttpClient CreateClientWithCookies()
     {
-        var cookieContainer = new System.Net.CookieContainer();
+        var cookieContainer = new CookieContainer();
         var handler = new CookieDelegatingHandler(cookieContainer, _factory.Server.CreateHandler());
         return new HttpClient(handler)
         {
@@ -192,10 +209,10 @@ public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : 
         return Uri.UnescapeDataString(xsrfCookie.Split('=', 2)[1].Split(';')[0]);
     }
 
-    private static async Task<AuthResponse> RegisterAsync(HttpClient client, string name, string email)
+    private static async Task<AuthResponse> RegisterAsync(HttpClient client, string name, string email, string plan = "free")
     {
         var token = await GetAntiforgeryTokenAsync(client);
-        var request = new RegisterRequest(name, email, "Password123!", "free");
+        var request = new RegisterRequest(name, email, "Password123!", plan);
         var message = new HttpRequestMessage(HttpMethod.Post, "/api/auth/register");
         message.Headers.Add("X-XSRF-TOKEN", token);
         message.Content = JsonContent.Create(request);
@@ -203,6 +220,17 @@ public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : 
         response.EnsureSuccessStatusCode();
 
         return (await response.Content.ReadFromJsonAsync<AuthResponse>(CancellationToken))!;
+    }
+
+    private async Task AddUserToRoleAsync(string email, string role)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = await userManager.FindByEmailAsync(email);
+        Assert.NotNull(user);
+
+        var result = await userManager.AddToRoleAsync(user, role);
+        Assert.True(result.Succeeded, string.Join(", ", result.Errors.Select(e => e.Description)));
     }
 
     private static string GetHeaderValue(ForwardedRequest forwarded, string headerName)
@@ -213,8 +241,6 @@ public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : 
 
     private sealed record ForwardedRequest(string Path, Dictionary<string, string[]> Headers);
 
-    // Delegating handler that manages a cookie container, forwarding cookies on requests
-    // and storing cookies from responses — while leaving Set-Cookie headers visible in the response.
     private sealed class CookieDelegatingHandler(CookieContainer cookieContainer, HttpMessageHandler inner)
         : DelegatingHandler(inner)
     {

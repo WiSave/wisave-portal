@@ -4,9 +4,9 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using WiSave.Portal.Auth.Models;
+using WiSave.Portal.Authorization;
 using Xunit;
 
 namespace WiSave.Portal.IntegrationTests.Hubs;
@@ -30,21 +30,10 @@ public class NotificationsHubTests : IClassFixture<WebApplicationFactory<Program
     {
         using var scope = _factory.Services.CreateScope();
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
-        foreach (var role in new[] { "superadmin", "admin", "user" })
+        foreach (var role in PortalRoles.AdminRoles.Concat(PortalRoles.PlanRoles))
         {
             if (!await roleManager.RoleExistsAsync(role))
                 await roleManager.CreateAsync(new IdentityRole(role));
-        }
-
-        var db = scope.ServiceProvider.GetRequiredService<Infrastructure.Database.PortalDbContext>();
-        if (!await db.Plans.AnyAsync())
-        {
-            db.Plans.AddRange(
-                new Plan { Id = "free", Name = "Free" },
-                new Plan { Id = "standard", Name = "Standard" },
-                new Plan { Id = "premium", Name = "Premium" }
-            );
-            await db.SaveChangesAsync();
         }
     }
 

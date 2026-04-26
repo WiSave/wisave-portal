@@ -37,7 +37,6 @@ namespace WiSave.Portal.Infrastructure.Database.Migrations
                 {
                     Id = table.Column<string>(type: "text", nullable: false),
                     Name = table.Column<string>(type: "text", nullable: false),
-                    PlanId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false, defaultValue: "free"),
                     UserName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
                     NormalizedUserName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
                     Email = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
@@ -56,34 +55,6 @@ namespace WiSave.Portal.Infrastructure.Database.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_AspNetUsers", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "Permissions",
-                schema: "public",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    Name = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
-                    Description = table.Column<string>(type: "text", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Permissions", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "Plans",
-                schema: "public",
-                columns: table => new
-                {
-                    Id = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
-                    Name = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
-                    IsActive = table.Column<bool>(type: "boolean", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Plans", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -203,33 +174,6 @@ namespace WiSave.Portal.Infrastructure.Database.Migrations
                         onDelete: ReferentialAction.Cascade);
                 });
 
-            migrationBuilder.CreateTable(
-                name: "PlanPermissions",
-                schema: "public",
-                columns: table => new
-                {
-                    PlanId = table.Column<string>(type: "character varying(50)", nullable: false),
-                    PermissionId = table.Column<Guid>(type: "uuid", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_PlanPermissions", x => new { x.PlanId, x.PermissionId });
-                    table.ForeignKey(
-                        name: "FK_PlanPermissions_Permissions_PermissionId",
-                        column: x => x.PermissionId,
-                        principalSchema: "public",
-                        principalTable: "Permissions",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_PlanPermissions_Plans_PlanId",
-                        column: x => x.PlanId,
-                        principalSchema: "public",
-                        principalTable: "Plans",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
             migrationBuilder.CreateIndex(
                 name: "IX_AspNetRoleClaims_RoleId",
                 schema: "public",
@@ -273,19 +217,6 @@ namespace WiSave.Portal.Infrastructure.Database.Migrations
                 table: "AspNetUsers",
                 column: "NormalizedUserName",
                 unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Permissions_Name",
-                schema: "public",
-                table: "Permissions",
-                column: "Name",
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_PlanPermissions_PermissionId",
-                schema: "public",
-                table: "PlanPermissions",
-                column: "PermissionId");
         }
 
         /// <inheritdoc />
@@ -312,23 +243,11 @@ namespace WiSave.Portal.Infrastructure.Database.Migrations
                 schema: "public");
 
             migrationBuilder.DropTable(
-                name: "PlanPermissions",
-                schema: "public");
-
-            migrationBuilder.DropTable(
                 name: "AspNetRoles",
                 schema: "public");
 
             migrationBuilder.DropTable(
                 name: "AspNetUsers",
-                schema: "public");
-
-            migrationBuilder.DropTable(
-                name: "Permissions",
-                schema: "public");
-
-            migrationBuilder.DropTable(
-                name: "Plans",
                 schema: "public");
         }
     }

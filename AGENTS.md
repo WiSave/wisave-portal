@@ -65,6 +65,8 @@ docker compose up -d postgres redis
 
 - Put schema evolution in the appropriate migrations project instead of ad hoc runtime logic.
 - Keep EF tooling and DbUp workflows compatible when changing persistence-related code.
+- Backend agents must not create, edit, delete, regenerate, rename, or otherwise modify EF migration files or DbUp SQL scripts unless the user explicitly asks for that exact migration/script change.
+- When working on backend changes, agents may read EF migrations and DbUp scripts for context only. Treat migration and DbUp script files as read-only by default.
 - Mention any required migration or seed follow-up in the handoff.
 
 ## Agent Handoff
@@ -75,4 +77,3 @@ When finishing work:
 - list the files touched
 - note verification performed
 - call out any follow-up steps, risks, or commands the user should run
-

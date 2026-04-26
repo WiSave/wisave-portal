@@ -6,8 +6,7 @@ public static class AuthorizationExtensions
 {
     public static IServiceCollection AddPortalAuthorization(this IServiceCollection services)
     {
-        services.AddSingleton<UserPlanCache>();
-        services.AddSingleton<PlanPermissionCache>();
+        services.AddScoped<RolePermissionResolver>();
 
         return services.AddPermissionPolicies();
     }

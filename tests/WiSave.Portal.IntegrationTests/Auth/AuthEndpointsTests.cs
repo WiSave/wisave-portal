@@ -1,12 +1,13 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using WiSave.Portal.Auth.Models;
+using WiSave.Portal.Authorization;
 using WiSave.Portal.Contracts.Authorization;
 using Xunit;
 
@@ -38,44 +39,77 @@ public class AuthEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
     {
         using var scope = factory.Services.CreateScope();
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
-        foreach (var role in new[] { "superadmin", "admin", "user" })
+        foreach (var role in PortalRoles.AdminRoles.Concat(PortalRoles.PlanRoles))
         {
             if (!await roleManager.RoleExistsAsync(role))
                 await roleManager.CreateAsync(new IdentityRole(role));
         }
 
-        var db = scope.ServiceProvider.GetRequiredService<Infrastructure.Database.PortalDbContext>();
-        if (!await db.Plans.AnyAsync())
-        {
-            db.Plans.AddRange(
-                new Plan { Id = "free", Name = "Free" },
-                new Plan { Id = "standard", Name = "Standard" },
-                new Plan { Id = "premium", Name = "Premium" }
-            );
-            await db.SaveChangesAsync();
-        }
+        await EnsurePermissionClaimAsync(roleManager, PortalRoles.FreePlan, PortalPermissions.Incomes.Read);
+        await EnsurePermissionClaimAsync(roleManager, PortalRoles.StandardPlan, PortalPermissions.Expenses.Read);
+        await EnsurePermissionClaimAsync(roleManager, PortalRoles.StandardPlan, PortalPermissions.Expenses.Write);
+        await EnsurePermissionClaimAsync(roleManager, PortalRoles.PremiumPlan, PortalPermissions.Expenses.Read);
+        await EnsurePermissionClaimAsync(roleManager, PortalRoles.PremiumPlan, PortalPermissions.Expenses.Write);
+        await EnsurePermissionClaimAsync(roleManager, PortalRoles.PremiumPlan, PortalPermissions.Expenses.Delete);
+    }
 
-        if (!await db.Permissions.AnyAsync())
-        {
-            var permissions = new[]
-            {
-                new Permission { Id = Guid.Parse("a3000000-0000-0000-0000-000000000001"), Name = PortalPermissions.Expenses.Read },
-                new Permission { Id = Guid.Parse("a3000000-0000-0000-0000-000000000002"), Name = PortalPermissions.Expenses.Write },
-                new Permission { Id = Guid.Parse("a3000000-0000-0000-0000-000000000003"), Name = PortalPermissions.Expenses.Delete },
-            };
-            db.Permissions.AddRange(permissions);
-            await db.SaveChangesAsync();
+    private static async Task EnsurePermissionClaimAsync(RoleManager<IdentityRole> roleManager, string roleName, string permission)
+    {
+        var role = await roleManager.FindByNameAsync(roleName);
+        Assert.NotNull(role);
 
-            db.PlanPermissions.AddRange(
-                new PlanPermission { PlanId = "free", PermissionId = permissions[0].Id },
-                new PlanPermission { PlanId = "standard", PermissionId = permissions[0].Id },
-                new PlanPermission { PlanId = "standard", PermissionId = permissions[1].Id },
-                new PlanPermission { PlanId = "premium", PermissionId = permissions[0].Id },
-                new PlanPermission { PlanId = "premium", PermissionId = permissions[1].Id },
-                new PlanPermission { PlanId = "premium", PermissionId = permissions[2].Id }
-            );
-            await db.SaveChangesAsync();
-        }
+        var claims = await roleManager.GetClaimsAsync(role);
+        if (!claims.Any(c => c.Type == PortalClaimTypes.Permission && c.Value == permission))
+            await roleManager.AddClaimAsync(role, new Claim(PortalClaimTypes.Permission, permission));
+    }
+
+    [Theory]
+    [InlineData("free", PortalRoles.FreePlan)]
+    [InlineData("standard", PortalRoles.StandardPlan)]
+    [InlineData("premium", PortalRoles.PremiumPlan)]
+    [InlineData("plan:standard", PortalRoles.StandardPlan)]
+    public async Task Register_ValidPlan_AssignsExactlyOnePlanRole(string requestedPlan, string expectedRole)
+    {
+        var client = CreateClient();
+        var email = $"plan-{Guid.NewGuid():N}@example.com";
+        var request = new RegisterRequest("Plan User", email, "Password123!", requestedPlan);
+
+        var response = await RegisterAsync(client, request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var user = await FindUserByEmailAsync(email);
+        var roles = await GetUserRolesAsync(user);
+        Assert.Contains(expectedRole, roles);
+        Assert.Single(roles, PortalRoles.IsPlanRole);
+    }
+
+    [Fact]
+    public async Task Register_BlankPlan_DefaultsToFreePlanRole()
+    {
+        var client = CreateClient();
+        var email = $"blank-plan-{Guid.NewGuid():N}@example.com";
+        var request = new RegisterRequest("Blank Plan User", email, "Password123!", "");
+
+        var response = await RegisterAsync(client, request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var user = await FindUserByEmailAsync(email);
+        var roles = await GetUserRolesAsync(user);
+        Assert.Contains(PortalRoles.FreePlan, roles);
+        Assert.Single(roles, PortalRoles.IsPlanRole);
+    }
+
+    [Fact]
+    public async Task Register_InvalidPlan_Returns400()
+    {
+        var client = CreateClient();
+        var request = new RegisterRequest("Bad Plan User", $"bad-plan-{Guid.NewGuid():N}@example.com", "Password123!", "enterprise");
+
+        var response = await RegisterAsync(client, request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -193,7 +227,7 @@ public class AuthEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
         var user = await response.Content.ReadFromJsonAsync<UserResponse>(CancellationToken);
         Assert.NotNull(user);
         Assert.NotNull(user.Permissions);
-        Assert.Contains(PortalPermissions.Expenses.Read, user.Permissions);
+        Assert.Contains(PortalPermissions.Incomes.Read, user.Permissions);
     }
 
     [Fact]
@@ -245,6 +279,77 @@ public class AuthEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Contains(response.Headers.GetValues("Set-Cookie"), c => c.StartsWith("XSRF-TOKEN="));
+    }
+
+    [Fact]
+    public async Task ChangePassword_Authenticated_ChangesPassword()
+    {
+        var client = CreateClient();
+        await RegisterAsync(client, new RegisterRequest("Password User", "password-change@example.com", "Password123!", "free"));
+
+        var response = await PostWithAntiforgeryAsync(
+            client,
+            "/api/auth/change-password",
+            new ChangePasswordRequest("Password123!", "NewPassword123!"));
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+
+        await PostWithAntiforgeryAsync(client, "/api/auth/logout", new { });
+        var oldPasswordLogin = await PostWithAntiforgeryAsync(
+            client,
+            "/api/auth/login",
+            new LoginRequest("password-change@example.com", "Password123!"));
+        Assert.Equal(HttpStatusCode.Unauthorized, oldPasswordLogin.StatusCode);
+
+        var newPasswordLogin = await PostWithAntiforgeryAsync(
+            client,
+            "/api/auth/login",
+            new LoginRequest("password-change@example.com", "NewPassword123!"));
+        Assert.Equal(HttpStatusCode.OK, newPasswordLogin.StatusCode);
+    }
+
+    [Fact]
+    public async Task ChangePassword_WrongCurrentPassword_Returns400()
+    {
+        var client = CreateClient();
+        await RegisterAsync(client, new RegisterRequest("Password User", "password-wrong@example.com", "Password123!", "free"));
+
+        var response = await PostWithAntiforgeryAsync(
+            client,
+            "/api/auth/change-password",
+            new ChangePasswordRequest("WrongPassword123!", "NewPassword123!"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ChangePassword_Unauthenticated_Returns401()
+    {
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost"),
+        });
+
+        var response = await PostWithAntiforgeryAsync(
+            client,
+            "/api/auth/change-password",
+            new ChangePasswordRequest("Password123!", "NewPassword123!"));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ChangePassword_WithoutAntiforgeryToken_Returns400()
+    {
+        var client = CreateClient();
+        await RegisterAsync(client, new RegisterRequest("Password User", "password-xsrf@example.com", "Password123!", "free"));
+
+        var response = await client.PostAsJsonAsync(
+            "/api/auth/change-password",
+            new ChangePasswordRequest("Password123!", "NewPassword123!"),
+            CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -444,6 +549,22 @@ public class AuthEndpointsTests : IClassFixture<WebApplicationFactory<Program>>,
 
     private static Task<HttpResponseMessage> RegisterAsync(HttpClient client, RegisterRequest request) =>
         PostWithAntiforgeryAsync(client, "/api/auth/register", request);
+
+    private async Task<ApplicationUser> FindUserByEmailAsync(string email)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = await userManager.FindByEmailAsync(email);
+        Assert.NotNull(user);
+        return user;
+    }
+
+    private async Task<IList<string>> GetUserRolesAsync(ApplicationUser user)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        return await userManager.GetRolesAsync(user);
+    }
 
     // Delegating handler that manages a cookie container, forwarding cookies on requests
     // and storing cookies from responses — while leaving Set-Cookie headers visible in the response.
