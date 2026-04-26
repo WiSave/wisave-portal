@@ -15,7 +15,6 @@ public class UserHeaderTransformProvider : ITransformProvider
     {
         context.AddRequestTransform(transformContext =>
         {
-            // Strip any client-sent identity/permission headers
             transformContext.ProxyRequest.Headers.Remove(PortalHeaderNames.UserId);
             transformContext.ProxyRequest.Headers.Remove(PortalHeaderNames.UserEmail);
             transformContext.ProxyRequest.Headers.Remove(PortalHeaderNames.UserRoles);

@@ -15,7 +15,7 @@ builder.Services.AddPortalAuthRateLimiting();
 builder.Services.AddPortalAuthorization();
 builder.Services.AddPortalSession(builder.Configuration);
 builder.Services.AddPortalGateway(builder.Configuration);
-builder.Services.AddPortalSignalR();
+builder.Services.AddPortalSignalR(builder.Configuration);
 builder.Services.AddPortalMessaging(builder.Configuration);
 builder.Services.AddPortalOpenApi();
 
@@ -23,7 +23,7 @@ var corsOrigins = builder.Configuration.GetCorsOrigins();
 builder.Services.AddPortalCors(corsOrigins);
 
 var app = builder.Build();
-app.ApplyPortalMigrations();
+// app.ApplyPortalMigrations();
 app.MapPortalApiDocs();
 app.UsePortalCors(corsOrigins);
 app.UsePortalForwarding();
