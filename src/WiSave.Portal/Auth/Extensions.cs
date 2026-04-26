@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using WiSave.Portal.Auth.Models;
 using WiSave.Portal.Infrastructure.Database;
@@ -53,6 +54,49 @@ public static class Extensions
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
                 return Task.CompletedTask;
             };
+        });
+
+        return services;
+    }
+
+    public static IServiceCollection AddPortalAntiforgery(this IServiceCollection services, IHostEnvironment environment)
+    {
+        services.AddAntiforgery(options =>
+        {
+            options.HeaderName = "X-XSRF-TOKEN";
+            // The system's own cookie stores the cookie token (HttpOnly).
+            // A separate XSRF-TOKEN cookie with the request token is set manually
+            // after GetAndStoreTokens() for Angular's XSRF interceptor to read.
+            options.Cookie.Name = ".AspNetCore.Antiforgery";
+            options.Cookie.HttpOnly = true;
+            options.Cookie.SameSite = SameSiteMode.Lax;
+            options.Cookie.SecurePolicy = environment.IsDevelopment()
+                ? CookieSecurePolicy.SameAsRequest
+                : CookieSecurePolicy.Always;
+        });
+
+        return services;
+    }
+
+    public static IServiceCollection AddPortalAuthRateLimiting(this IServiceCollection services)
+    {
+        services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+            options.AddFixedWindowLimiter("auth-login", opt =>
+            {
+                opt.PermitLimit = 10;
+                opt.Window = TimeSpan.FromMinutes(1);
+                opt.QueueLimit = 0;
+            });
+
+            options.AddFixedWindowLimiter("auth-register", opt =>
+            {
+                opt.PermitLimit = 5;
+                opt.Window = TimeSpan.FromMinutes(1);
+                opt.QueueLimit = 0;
+            });
         });
 
         return services;

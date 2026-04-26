@@ -4,6 +4,14 @@ namespace WiSave.Portal.Authorization;
 
 public static class AuthorizationExtensions
 {
+    public static IServiceCollection AddPortalAuthorization(this IServiceCollection services)
+    {
+        services.AddSingleton<UserPlanCache>();
+        services.AddSingleton<PlanPermissionCache>();
+
+        return services.AddPermissionPolicies();
+    }
+
     public static IServiceCollection AddPermissionPolicies(this IServiceCollection services)
     {
         services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
@@ -26,5 +34,14 @@ public static class AuthorizationExtensions
             });
 
         return services;
+    }
+
+    public static WebApplication UsePortalAuthorization(this WebApplication app)
+    {
+        app.UseAuthentication();
+        app.UseMiddleware<PermissionResolutionMiddleware>();
+        app.UseAuthorization();
+
+        return app;
     }
 }
