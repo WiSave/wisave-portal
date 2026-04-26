@@ -14,6 +14,11 @@ public static class Extensions
         var expensesSettings = GetBusSettings(configuration, "Expenses", "expenses");
         var portalSettings = GetBusSettings(configuration, "Portal", "portal");
 
+        services.AddHttpClient<IAccountPayloadProvider, AccountPayloadProvider>((_, client) =>
+        {
+            client.BaseAddress = GetExpensesBaseAddress(configuration);
+        });
+
         services.AddMassTransit<IExpensesBus>(x =>
         {
             x.AddConsumer<NotificationConsumer>();
@@ -67,6 +72,20 @@ public static class Extensions
         }
 
         return string.IsNullOrWhiteSpace(configuration["RabbitMq:Host"]);
+    }
+
+    private static Uri GetExpensesBaseAddress(IConfiguration configuration)
+    {
+        var address = configuration
+            .GetSection("ReverseProxy:Clusters:expenses-cluster:Destinations")
+            .GetChildren()
+            .Select(d => d["Address"])
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+
+        if (string.IsNullOrWhiteSpace(address))
+            throw new InvalidOperationException("ReverseProxy expenses-cluster destination is not configured.");
+
+        return new Uri(address, UriKind.Absolute);
     }
 
     private static RabbitMqBusSettings GetBusSettings(

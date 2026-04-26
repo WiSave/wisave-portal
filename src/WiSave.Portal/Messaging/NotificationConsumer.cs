@@ -5,10 +5,13 @@ using WiSave.Expenses.Contracts.Events.Accounts;
 using WiSave.Expenses.Contracts.Events.Budgets;
 using WiSave.Expenses.Contracts.Events.Expenses;
 using WiSave.Portal.Hubs;
+using WiSave.Portal.Hubs.Realtime;
 
 namespace WiSave.Portal.Messaging;
 
-public class NotificationConsumer(IHubContext<NotificationsHub> hub) :
+public class NotificationConsumer(
+    IHubContext<NotificationsHub> hub,
+    IAccountPayloadProvider accountPayloadProvider) :
     IConsumer<AccountOpened>,
     IConsumer<AccountUpdated>,
     IConsumer<AccountClosed>,
@@ -22,46 +25,70 @@ public class NotificationConsumer(IHubContext<NotificationsHub> hub) :
     IConsumer<CategoryLimitRemoved>,
     IConsumer<CommandFailed>
 {
-    public Task Consume(ConsumeContext<AccountOpened> context)
+    public async Task Consume(ConsumeContext<AccountOpened> ctx)
     {
-        return Push(context.Message.UserId, nameof(AccountOpened), context.Message, context.CancellationToken);
+        var payload = await accountPayloadProvider.GetAsync(ctx.Message.UserId, ctx.Message.AccountId, ctx.CancellationToken);
+        await PushAccount(RealtimeEventType.AccountOpened, payload, ctx.CancellationToken);
     }
 
-    public Task Consume(ConsumeContext<AccountUpdated> context)
+    public async Task Consume(ConsumeContext<AccountUpdated> ctx)
     {
-        return Push(context.Message.UserId, nameof(AccountUpdated), context.Message, context.CancellationToken);
+        var payload = await accountPayloadProvider.GetAsync(ctx.Message.UserId, ctx.Message.AccountId, ctx.CancellationToken);
+        await PushAccount(RealtimeEventType.AccountUpdated, payload, ctx.CancellationToken);
     }
 
-    public Task Consume(ConsumeContext<AccountClosed> context) =>
-        Push(context.Message.UserId, nameof(AccountClosed), context.Message, context.CancellationToken);
+    public Task Consume(ConsumeContext<AccountClosed> ctx) =>
+        Push(ctx, RealtimeEventType.AccountClosed, ctx.Message.UserId, ctx.Message.AccountId);
 
-    public Task Consume(ConsumeContext<ExpenseRecorded> context) =>
-        Push(context.Message.UserId, nameof(ExpenseRecorded), context.Message, context.CancellationToken);
+    public Task Consume(ConsumeContext<ExpenseRecorded> ctx) =>
+        Push(ctx, RealtimeEventType.ExpenseRecorded, ctx.Message.UserId, ctx.Message.ExpenseId);
 
-    public Task Consume(ConsumeContext<ExpenseUpdated> context) =>
-        Push(context.Message.UserId, nameof(ExpenseUpdated), context.Message, context.CancellationToken);
+    public Task Consume(ConsumeContext<ExpenseUpdated> ctx) =>
+        Push(ctx, RealtimeEventType.ExpenseUpdated, ctx.Message.UserId, ctx.Message.ExpenseId);
 
-    public Task Consume(ConsumeContext<ExpenseDeleted> context) =>
-        Push(context.Message.UserId, nameof(ExpenseDeleted), context.Message, context.CancellationToken);
+    public Task Consume(ConsumeContext<ExpenseDeleted> ctx) =>
+        Push(ctx, RealtimeEventType.ExpenseDeleted, ctx.Message.UserId, ctx.Message.ExpenseId);
 
-    public Task Consume(ConsumeContext<BudgetCreated> context) =>
-        Push(context.Message.UserId, nameof(BudgetCreated), context.Message, context.CancellationToken);
+    public Task Consume(ConsumeContext<BudgetCreated> ctx) =>
+        Push(ctx, RealtimeEventType.BudgetCreated, ctx.Message.UserId, ctx.Message.BudgetId);
 
-    public Task Consume(ConsumeContext<BudgetCopiedFromPrevious> context) =>
-        Push(context.Message.UserId, nameof(BudgetCopiedFromPrevious), context.Message, context.CancellationToken);
+    public Task Consume(ConsumeContext<BudgetCopiedFromPrevious> ctx) =>
+        Push(ctx, RealtimeEventType.BudgetCopiedFromPrevious, ctx.Message.UserId, ctx.Message.BudgetId);
 
-    public Task Consume(ConsumeContext<OverallLimitSet> context) =>
-        Push(context.Message.UserId, nameof(OverallLimitSet), context.Message, context.CancellationToken);
+    public Task Consume(ConsumeContext<OverallLimitSet> ctx) =>
+        Push(ctx, RealtimeEventType.OverallLimitSet, ctx.Message.UserId, ctx.Message.BudgetId);
 
-    public Task Consume(ConsumeContext<CategoryLimitSet> context) =>
-        Push(context.Message.UserId, nameof(CategoryLimitSet), context.Message, context.CancellationToken);
+    public Task Consume(ConsumeContext<CategoryLimitSet> ctx) =>
+        Push(ctx, RealtimeEventType.CategoryLimitSet, ctx.Message.UserId, ctx.Message.BudgetId);
 
-    public Task Consume(ConsumeContext<CategoryLimitRemoved> context) =>
-        Push(context.Message.UserId, nameof(CategoryLimitRemoved), context.Message, context.CancellationToken);
+    public Task Consume(ConsumeContext<CategoryLimitRemoved> ctx) =>
+        Push(ctx, RealtimeEventType.CategoryLimitRemoved, ctx.Message.UserId, ctx.Message.BudgetId);
 
-    public Task Consume(ConsumeContext<CommandFailed> context) =>
-        Push(context.Message.UserId, nameof(CommandFailed), context.Message, context.CancellationToken);
+    public Task Consume(ConsumeContext<CommandFailed> ctx) =>
+        Push(ctx, RealtimeEventType.CommandFailed, ctx.Message.UserId, entityId: null);
 
-    private Task Push(string userId, string eventName, object message, CancellationToken cancellationToken) =>
-        hub.Clients.Group(userId).SendAsync(eventName, message, cancellationToken);
+    private Task PushAccount(string eventType, AccountPayload payload, CancellationToken cancellationToken)
+    {
+        var env = new RealtimeEnvelope(
+            EventId: Guid.CreateVersion7(),
+            Domain: "expenses",
+            EventType: eventType,
+            OccurredAt: DateTime.UtcNow,
+            EntityId: payload.AccountId,
+            Payload: payload);
+        return hub.Clients.Group(payload.UserId).SendAsync("realtimeEvent", env, cancellationToken);
+    }
+
+    private Task Push<T>(ConsumeContext<T> ctx, string eventType, string userId, string? entityId)
+        where T : class
+    {
+        var env = new RealtimeEnvelope(
+            EventId: Guid.CreateVersion7(),
+            Domain: "expenses",
+            EventType: eventType,
+            OccurredAt: DateTime.UtcNow,
+            EntityId: entityId,
+            Payload: ctx.Message!);
+        return hub.Clients.Group(userId).SendAsync("realtimeEvent", env, ctx.CancellationToken);
+    }
 }

@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using WiSave.Expenses.Contracts.Bus;
 using WiSave.Expenses.Contracts.Events;
 using WiSave.Expenses.Contracts.Events.Accounts;
@@ -15,6 +16,9 @@ using WiSave.Expenses.Contracts.Events.Expenses;
 using WiSave.Expenses.Contracts.Models;
 using WiSave.Portal.Auth.Models;
 using WiSave.Portal.Contracts.Bus;
+using WiSave.Portal.Contracts.Authorization;
+using WiSave.Portal.Hubs.Realtime;
+using WiSave.Portal.Messaging;
 using Xunit;
 
 namespace WiSave.Portal.IntegrationTests.Messaging;
@@ -22,6 +26,7 @@ namespace WiSave.Portal.IntegrationTests.Messaging;
 public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>>, IAsyncLifetime
 {
     private readonly WebApplicationFactory<Program> _factory;
+    private readonly StubAccountPayloadProvider _accountPayloadProvider = new();
     private static CancellationToken CancellationToken => TestContext.Current.CancellationToken;
 
     public ConsumerSignalRTests(WebApplicationFactory<Program> factory)
@@ -32,6 +37,11 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
             builder.UseSetting("InMemoryDatabaseName", "ConsumerTests_" + Guid.NewGuid());
             builder.UseSetting("Messaging:Transport", "InMemory");
             builder.UseSetting("Redis:ConnectionString", "");
+            builder.ConfigureTestServices(services =>
+            {
+                services.RemoveAll<IAccountPayloadProvider>();
+                services.AddSingleton<IAccountPayloadProvider>(_accountPayloadProvider);
+            });
         });
     }
 
@@ -52,6 +62,28 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
                 new Plan { Id = "free", Name = "Free" },
                 new Plan { Id = "standard", Name = "Standard" },
                 new Plan { Id = "premium", Name = "Premium" }
+            );
+            await db.SaveChangesAsync();
+        }
+
+        if (!await db.Permissions.AnyAsync())
+        {
+            var permissions = new[]
+            {
+                new Permission { Id = Guid.Parse("a3000000-0000-0000-0000-000000000001"), Name = PortalPermissions.Expenses.Read },
+                new Permission { Id = Guid.Parse("a3000000-0000-0000-0000-000000000002"), Name = PortalPermissions.Expenses.Write },
+                new Permission { Id = Guid.Parse("a3000000-0000-0000-0000-000000000003"), Name = PortalPermissions.Expenses.Delete },
+            };
+            db.Permissions.AddRange(permissions);
+            await db.SaveChangesAsync();
+
+            db.PlanPermissions.AddRange(
+                new PlanPermission { PlanId = "free", PermissionId = permissions[0].Id },
+                new PlanPermission { PlanId = "standard", PermissionId = permissions[0].Id },
+                new PlanPermission { PlanId = "standard", PermissionId = permissions[1].Id },
+                new PlanPermission { PlanId = "premium", PermissionId = permissions[0].Id },
+                new PlanPermission { PlanId = "premium", PermissionId = permissions[1].Id },
+                new PlanPermission { PlanId = "premium", PermissionId = permissions[2].Id }
             );
             await db.SaveChangesAsync();
         }
@@ -77,9 +109,10 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
         var (connection, userId) = await CreateAuthenticatedHubConnection("expense@example.com");
 
         var tcs = new TaskCompletionSource<JsonElement>();
-        connection.On<JsonElement>("ExpenseRecorded", message =>
+        connection.On<JsonElement>("realtimeEvent", envelope =>
         {
-            tcs.TrySetResult(message);
+            if (envelope.GetProperty("eventType").GetString() == "expense.recorded")
+                tcs.TrySetResult(envelope);
         });
 
         await connection.StartAsync(CancellationToken);
@@ -99,9 +132,13 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
             Timestamp: DateTimeOffset.UtcNow
         ));
 
-        var result = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
-        Assert.Equal("exp-1", result.GetProperty("expenseId").GetString());
-        Assert.Equal(userId, result.GetProperty("userId").GetString());
+        var envelope = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
+        Assert.Equal("expenses", envelope.GetProperty("domain").GetString());
+        Assert.Equal("expense.recorded", envelope.GetProperty("eventType").GetString());
+        Assert.Equal("exp-1", envelope.GetProperty("entityId").GetString());
+        var payload = envelope.GetProperty("payload");
+        Assert.Equal("exp-1", payload.GetProperty("expenseId").GetString());
+        Assert.Equal(userId, payload.GetProperty("userId").GetString());
 
         await connection.StopAsync(CancellationToken);
         await connection.DisposeAsync();
@@ -113,9 +150,10 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
         var (connection, userId) = await CreateAuthenticatedHubConnection("cmdfail@example.com");
 
         var tcs = new TaskCompletionSource<JsonElement>();
-        connection.On<JsonElement>("CommandFailed", message =>
+        connection.On<JsonElement>("realtimeEvent", envelope =>
         {
-            tcs.TrySetResult(message);
+            if (envelope.GetProperty("eventType").GetString() == "command.failed")
+                tcs.TrySetResult(envelope);
         });
 
         await connection.StartAsync(CancellationToken);
@@ -129,9 +167,12 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
             Timestamp: DateTimeOffset.UtcNow
         ));
 
-        var result = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
-        Assert.Equal("RecordExpense", result.GetProperty("commandType").GetString());
-        Assert.Equal("Insufficient funds", result.GetProperty("reason").GetString());
+        var envelope = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
+        Assert.Equal("command.failed", envelope.GetProperty("eventType").GetString());
+        Assert.True(envelope.GetProperty("entityId").ValueKind == JsonValueKind.Null);
+        var payload = envelope.GetProperty("payload");
+        Assert.Equal("RecordExpense", payload.GetProperty("commandType").GetString());
+        Assert.Equal("Insufficient funds", payload.GetProperty("reason").GetString());
 
         await connection.StopAsync(CancellationToken);
         await connection.DisposeAsync();
@@ -141,11 +182,28 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
     public async Task AccountOpened_IsPushedToSignalRClient()
     {
         var (connection, userId) = await CreateAuthenticatedHubConnection("account@example.com");
+        _accountPayloadProvider.Set(new AccountPayload(
+            AccountId: "acc-42",
+            UserId: userId,
+            Name: "Main Account",
+            Type: "CreditCard",
+            Variant: null,
+            Currency: "PLN",
+            Balance: null,
+            LinkedBankAccountId: "bank-1",
+            CreditLimit: 5000m,
+            BillingCycleDay: 16,
+            PreviousCycleDebt: 1200m,
+            CurrentCycleDebt: 340m,
+            Color: "#FF0000",
+            LastFourDigits: "1234",
+            Timestamp: DateTimeOffset.UtcNow));
 
         var tcs = new TaskCompletionSource<JsonElement>();
-        connection.On<JsonElement>("AccountOpened", message =>
+        connection.On<JsonElement>("realtimeEvent", envelope =>
         {
-            tcs.TrySetResult(message);
+            if (envelope.GetProperty("eventType").GetString() == "account.opened")
+                tcs.TrySetResult(envelope);
         });
 
         await connection.StartAsync(CancellationToken);
@@ -165,9 +223,75 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
             Timestamp: DateTimeOffset.UtcNow
         ));
 
-        var result = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
-        Assert.Equal("acc-42", result.GetProperty("accountId").GetString());
-        Assert.Equal("Main Account", result.GetProperty("name").GetString());
+        var envelope = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
+        Assert.Equal("account.opened", envelope.GetProperty("eventType").GetString());
+        Assert.Equal("acc-42", envelope.GetProperty("entityId").GetString());
+        var payload = envelope.GetProperty("payload");
+        Assert.Equal("acc-42", payload.GetProperty("accountId").GetString());
+        Assert.Equal("Main Account", payload.GetProperty("name").GetString());
+        Assert.Equal("CreditCard", payload.GetProperty("type").GetString());
+        Assert.True(payload.GetProperty("variant").ValueKind == JsonValueKind.Null);
+        Assert.Equal(1200m, payload.GetProperty("previousCycleDebt").GetDecimal());
+        Assert.Equal(340m, payload.GetProperty("currentCycleDebt").GetDecimal());
+        Assert.Equal("bank-1", payload.GetProperty("linkedBankAccountId").GetString());
+
+        await connection.StopAsync(CancellationToken);
+        await connection.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AccountUpdated_IsPushedToSignalRClient_AsFullSnapshot()
+    {
+        var (connection, userId) = await CreateAuthenticatedHubConnection("account-update@example.com");
+        _accountPayloadProvider.Set(new AccountPayload(
+            AccountId: "acc-77",
+            UserId: userId,
+            Name: "Travel Card",
+            Type: "DebitCard",
+            Variant: "standalone",
+            Currency: "EUR",
+            Balance: 250m,
+            LinkedBankAccountId: null,
+            CreditLimit: null,
+            BillingCycleDay: null,
+            PreviousCycleDebt: null,
+            CurrentCycleDebt: null,
+            Color: null,
+            LastFourDigits: "8812",
+            Timestamp: DateTimeOffset.UtcNow));
+
+        var tcs = new TaskCompletionSource<JsonElement>();
+        connection.On<JsonElement>("realtimeEvent", envelope =>
+        {
+            if (envelope.GetProperty("eventType").GetString() == "account.updated")
+                tcs.TrySetResult(envelope);
+        });
+
+        await connection.StartAsync(CancellationToken);
+
+        await PublishOnExpensesBus(new AccountUpdated(
+            AccountId: "acc-77",
+            UserId: userId,
+            Name: "Travel Card",
+            Type: AccountType.DebitCard,
+            Currency: Currency.EUR,
+            Balance: 250m,
+            LinkedBankAccountId: null,
+            CreditLimit: null,
+            BillingCycleDay: null,
+            Color: null,
+            LastFourDigits: "8812",
+            Timestamp: DateTimeOffset.UtcNow
+        ));
+
+        var envelope = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken);
+        Assert.Equal("account.updated", envelope.GetProperty("eventType").GetString());
+        Assert.Equal("acc-77", envelope.GetProperty("entityId").GetString());
+        var payload = envelope.GetProperty("payload");
+        Assert.Equal("DebitCard", payload.GetProperty("type").GetString());
+        Assert.Equal("standalone", payload.GetProperty("variant").GetString());
+        Assert.Equal(250m, payload.GetProperty("balance").GetDecimal());
+        Assert.True(payload.GetProperty("linkedBankAccountId").ValueKind == JsonValueKind.Null);
 
         await connection.StopAsync(CancellationToken);
         await connection.DisposeAsync();
@@ -185,7 +309,10 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
         msg.Headers.Add("X-XSRF-TOKEN", afToken);
         msg.Content = JsonContent.Create(request);
         var registerResponse = await client.SendAsync(msg, CancellationToken);
-        Assert.Equal(HttpStatusCode.OK, registerResponse.StatusCode);
+        var registerBody = await registerResponse.Content.ReadAsStringAsync(CancellationToken);
+        Assert.True(
+            registerResponse.StatusCode == HttpStatusCode.OK,
+            $"Expected 200 from /api/auth/register but got {(int)registerResponse.StatusCode} {registerResponse.StatusCode}. Body: {registerBody}");
 
         var auth = await registerResponse.Content.ReadFromJsonAsync<AuthResponse>(CancellationToken);
         var userId = auth!.User.Id;
@@ -252,6 +379,21 @@ public class ConsumerSignalRTests : IClassFixture<WebApplicationFactory<Program>
             }
 
             return response;
+        }
+    }
+
+    private sealed class StubAccountPayloadProvider : IAccountPayloadProvider
+    {
+        private readonly Dictionary<string, AccountPayload> _payloads = [];
+
+        public void Set(AccountPayload payload) => _payloads[payload.AccountId] = payload;
+
+        public Task<AccountPayload> GetAsync(string userId, string accountId, CancellationToken ct = default)
+        {
+            if (_payloads.TryGetValue(accountId, out var payload))
+                return Task.FromResult(payload);
+
+            throw new InvalidOperationException($"Missing test payload for account '{accountId}'.");
         }
     }
 }
