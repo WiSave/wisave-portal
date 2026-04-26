@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.Extensions.DependencyInjection;
 using WiSave.Portal.Contracts.Authorization;
 using WiSave.Portal.Hubs.Realtime;
 
@@ -18,6 +19,7 @@ public sealed class ExpensesRealtimePayloadProvider : IExpensesRealtimePayloadPr
     private readonly HttpClient _httpClient;
     private readonly Func<TimeSpan, CancellationToken, ValueTask> _delayAsync;
 
+    [ActivatorUtilitiesConstructor]
     public ExpensesRealtimePayloadProvider(HttpClient httpClient)
         : this(httpClient, DelayAsync)
     {
