@@ -1,12 +1,7 @@
 services:
   portal:
-    build:
-      context: .
-      dockerfile: src/WiSave.Portal/Dockerfile
-      args:
-        GITHUB_PACKAGES_USERNAME: ${GITHUB_PACKAGES_USERNAME:-JacobChwastek}
-      secrets:
-        - github_packages_token
+    image: wisave-portal:latest
+    pull_policy: never
     ports:
       - "5100:8080"
     depends_on:
@@ -82,7 +77,3 @@ networks:
   wisave-net:
     external: true
     name: wisave-net
-
-secrets:
-  github_packages_token:
-    environment: GITHUB_PACKAGES_TOKEN

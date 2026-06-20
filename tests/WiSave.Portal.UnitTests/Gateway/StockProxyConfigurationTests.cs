@@ -35,6 +35,17 @@ public sealed class StockProxyConfigurationTests
             compose);
     }
 
+    [Fact]
+    public void DockerCompose_Portal_UsesSdkPublishedImage()
+    {
+        var compose = File.ReadAllText(RepoPath("docker-compose.yml"));
+
+        Assert.Contains("image: wisave-portal:latest", compose);
+        Assert.Contains("pull_policy: never", compose);
+        Assert.DoesNotContain("dockerfile:", compose);
+        Assert.DoesNotContain("github_packages_token", compose);
+    }
+
     private static string RepoPath(string relativePath)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
