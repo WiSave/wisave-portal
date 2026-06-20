@@ -37,7 +37,8 @@ public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : 
             {
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["ReverseProxy:Clusters:incomes-cluster:Destinations:destination1:Address"] = _downstream.BaseAddress
+                    ["ReverseProxy:Clusters:incomes-cluster:Destinations:destination1:Address"] = _downstream.BaseAddress,
+                    ["ReverseProxy:Clusters:stocks-cluster:Destinations:destination1:Address"] = _downstream.BaseAddress
                 });
             });
         });
@@ -66,6 +67,12 @@ public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : 
         await EnsurePermissionClaimAsync(roleManager, PortalRoles.PremiumPlan, PortalPermissions.Incomes.Read);
         await EnsurePermissionClaimAsync(roleManager, PortalRoles.PremiumPlan, PortalPermissions.Incomes.Write);
         await EnsurePermissionClaimAsync(roleManager, PortalRoles.PremiumPlan, PortalPermissions.Incomes.Delete);
+        await EnsurePermissionClaimAsync(roleManager, PortalRoles.FreePlan, PortalPermissions.Stocks.Read);
+        await EnsurePermissionClaimAsync(roleManager, PortalRoles.StandardPlan, PortalPermissions.Stocks.Read);
+        await EnsurePermissionClaimAsync(roleManager, PortalRoles.StandardPlan, PortalPermissions.Stocks.Write);
+        await EnsurePermissionClaimAsync(roleManager, PortalRoles.PremiumPlan, PortalPermissions.Stocks.Read);
+        await EnsurePermissionClaimAsync(roleManager, PortalRoles.PremiumPlan, PortalPermissions.Stocks.Write);
+        await EnsurePermissionClaimAsync(roleManager, PortalRoles.PremiumPlan, PortalPermissions.Stocks.PortfolioManage);
     }
 
     private static async Task EnsurePermissionClaimAsync(RoleManager<IdentityRole> roleManager, string roleName, string permission)
@@ -92,7 +99,28 @@ public class UserHeaderTransformTests(WebApplicationFactory<Program> factory) : 
         Assert.Equal("/incomes", forwarded.Path);
         Assert.Equal(auth.User.Id, GetHeaderValue(forwarded, PortalHeaderNames.UserId));
         Assert.Equal(auth.User.Email, GetHeaderValue(forwarded, PortalHeaderNames.UserEmail));
-        Assert.Equal(PortalPermissions.Incomes.Read, GetHeaderValue(forwarded, PortalHeaderNames.UserPermissions));
+        Assert.Contains(
+            PortalPermissions.Incomes.Read,
+            GetHeaderValue(forwarded, PortalHeaderNames.UserPermissions).Split(','));
+    }
+
+    [Fact]
+    public async Task StocksProxiedRequest_Authenticated_ForwardsIdentityHeaders()
+    {
+        var client = CreateClientWithCookies();
+        var auth = await RegisterAsync(client, "Stock Proxy User", "stock-proxy@example.com");
+
+        var response = await client.GetAsync("/api/stocks/brokers", CancellationToken);
+        var forwarded = await response.Content.ReadFromJsonAsync<ForwardedRequest>(CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(forwarded);
+        Assert.Equal("/stocks/brokers", forwarded.Path);
+        Assert.Equal(auth.User.Id, GetHeaderValue(forwarded, PortalHeaderNames.UserId));
+        Assert.Equal(auth.User.Email, GetHeaderValue(forwarded, PortalHeaderNames.UserEmail));
+        Assert.Contains(
+            PortalPermissions.Stocks.Read,
+            GetHeaderValue(forwarded, PortalHeaderNames.UserPermissions).Split(','));
     }
 
     [Fact]

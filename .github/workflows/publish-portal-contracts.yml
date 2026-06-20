@@ -17,8 +17,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     env:
-      PACKAGES_USERNAME: ${{ github.repository_owner }}
-      PACKAGES_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+      PACKAGES_USERNAME: ${{ github.actor }}
+      PACKAGES_TOKEN: ${{ github.token }}
 
     steps:
       - name: Checkout repository
@@ -33,13 +33,19 @@ jobs:
         shell: bash
         run: |
           if [ -z "${PACKAGES_TOKEN}" ]; then
-            echo "::error title=Missing GitHub Packages token::Repository secret PACKAGES_READ_TOKEN is not set."
+            echo "::error title=Missing GitHub Packages token::Workflow token is not available."
             exit 1
           fi
 
+      - name: Configure GitHub Packages credentials
+        run: >
+          dotnet nuget update source wisave
+          --username "${PACKAGES_USERNAME}"
+          --password "${PACKAGES_TOKEN}"
+          --store-password-in-clear-text
+          --configfile NuGet.Config
+
       - name: Restore solution
-        env:
-          NuGetPackageSourceCredentials_github: Username=${{ env.PACKAGES_USERNAME }};Password=${{ env.PACKAGES_TOKEN }}
         run: dotnet restore WiSave.Portal.slnx --configfile NuGet.Config
 
       - name: Run portal unit tests
@@ -72,5 +78,5 @@ jobs:
         run: >
           dotnet nuget push "artifacts/packages/*.nupkg"
           --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
-          --api-key "${{ secrets.GITHUB_TOKEN }}"
+          --api-key "${PACKAGES_TOKEN}"
           --skip-duplicate

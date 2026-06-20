@@ -14,9 +14,6 @@
     <PackageTags>wisave;portal;contracts;auth;identity</PackageTags>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="MassTransit.Abstractions" Version="8.5.8" />
-  </ItemGroup>
-  <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 </Project>
