@@ -40,6 +40,7 @@ Use the existing documented commands:
 ```bash
 dotnet build
 dotnet run --project src/WiSave.Portal
+dotnet publish src/WiSave.Portal/WiSave.Portal.csproj -c Release --os linux /t:PublishContainer
 dotnet test
 dotnet test --filter "FullyQualifiedName~WiSave.Portal.Tests.Auth.AuthEndpointsTests"
 docker compose up -d postgres redis

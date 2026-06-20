@@ -11,6 +11,9 @@ dotnet build
 # Run the portal (requires Postgres + Redis; see docker-compose for local infra)
 dotnet run --project src/WiSave.Portal
 
+# Publish the portal container image consumed by docker-compose
+dotnet publish src/WiSave.Portal/WiSave.Portal.csproj -c Release --os linux /t:PublishContainer
+
 # Run all tests (uses in-memory database, no external deps needed)
 dotnet test
 
