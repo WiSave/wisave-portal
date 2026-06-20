@@ -1,72 +1,55 @@
-using MassTransit;
-using WiSave.Expenses.Contracts.Bus;
-using WiSave.Portal.Contracts.Bus;
+using Wolverine;
+using Wolverine.RabbitMQ;
 
 namespace WiSave.Portal.Messaging;
 
 public static class Extensions
 {
-    public static IServiceCollection AddPortalMessaging(
-        this IServiceCollection services,
-        IConfiguration configuration)
+    public static IHostApplicationBuilder AddPortalMessaging(this IHostApplicationBuilder builder)
     {
+        var configuration = builder.Configuration;
         var useInMemoryTransport = UseInMemoryTransport(configuration);
-        var expensesSettings = GetBusSettings(configuration, "Expenses", "expenses");
-        var portalSettings = GetBusSettings(configuration, "Portal", "portal");
+        var rabbitMqSettings = GetBusSettings(configuration, "expenses");
 
-        services.AddHttpClient<IExpensesRealtimePayloadProvider, ExpensesRealtimePayloadProvider>((_, client) =>
+        builder.Services.AddHttpClient<IExpensesRealtimePayloadProvider, ExpensesRealtimePayloadProvider>((_, client) =>
         {
             client.BaseAddress = GetExpensesBaseAddress(configuration);
         });
 
-        services.AddMassTransit<IExpensesBus>(x =>
+        builder.UseWolverine(options =>
         {
-            x.AddConsumer<NotificationConsumer>();
-            x.SetEndpointNameFormatter(new DefaultEndpointNameFormatter(".", null, true));
-            ConfigureTransport(x, useInMemoryTransport, expensesSettings);
-        });
+            options.Discovery.IncludeType<NotificationConsumer>();
 
-        services.AddMassTransit<IPortalBus>(x =>
-        {
-            x.SetEndpointNameFormatter(new DefaultEndpointNameFormatter(".", null, true));
-            ConfigureTransport(x, useInMemoryTransport, portalSettings);
-        });
-
-        return services;
-    }
-
-    private static void ConfigureTransport<TBus>(
-        IBusRegistrationConfigurator<TBus> configurator,
-        bool useInMemoryTransport,
-        RabbitMqBusSettings settings)
-        where TBus : class, IBus
-    {
-        if (useInMemoryTransport)
-        {
-            configurator.UsingInMemory((context, cfg) =>
+            if (useInMemoryTransport)
             {
-                cfg.ConfigureEndpoints(context);
-            });
+                options.PublishAllMessages().ToLocalQueue("portal-messaging");
+                return;
+            }
 
-            return;
-        }
-
-        configurator.UsingRabbitMq((context, cfg) =>
-        {
-            cfg.Host(settings.Host, settings.VirtualHost, h =>
-            {
-                h.Username(settings.Username);
-                h.Password(settings.Password);
-            });
-
-            cfg.ConfigureEndpoints(context);
+            options.UseRabbitMq(rabbit =>
+                {
+                    rabbit.HostName = rabbitMqSettings.Host;
+                    rabbit.VirtualHost = rabbitMqSettings.VirtualHost;
+                    rabbit.UserName = rabbitMqSettings.Username;
+                    rabbit.Password = rabbitMqSettings.Password;
+                })
+                .EnableEnhancedDeadLettering()
+                .AutoProvision()
+                .UseConventionalRouting();
         });
+
+        return builder;
     }
 
     private static bool UseInMemoryTransport(IConfiguration configuration)
     {
         var transport = configuration["Messaging:Transport"];
         if (string.Equals(transport, "InMemory", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (string.Equals(configuration["UseInMemoryDatabase"], "true", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
@@ -88,18 +71,13 @@ public static class Extensions
         return new Uri(address, UriKind.Absolute);
     }
 
-    private static RabbitMqBusSettings GetBusSettings(
-        IConfiguration configuration,
-        string sectionName,
-        string defaultVirtualHost)
+    private static RabbitMqBusSettings GetBusSettings(IConfiguration configuration, string defaultVirtualHost)
     {
-        var section = configuration.GetSection($"RabbitMq:{sectionName}");
-
         return new RabbitMqBusSettings(
-            Host: section["Host"] ?? configuration["RabbitMq:Host"] ?? "localhost",
-            VirtualHost: section["VirtualHost"] ?? configuration["RabbitMq:VirtualHost"] ?? defaultVirtualHost,
-            Username: section["Username"] ?? configuration["RabbitMq:Username"] ?? "guest",
-            Password: section["Password"] ?? configuration["RabbitMq:Password"] ?? "guest");
+            Host: configuration["RabbitMq:Host"] ?? "localhost",
+            VirtualHost: configuration["RabbitMq:VirtualHost"] ?? defaultVirtualHost,
+            Username: configuration["RabbitMq:Username"] ?? "guest",
+            Password: configuration["RabbitMq:Password"] ?? "guest");
     }
 
     private sealed record RabbitMqBusSettings(

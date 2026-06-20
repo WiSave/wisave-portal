@@ -9,6 +9,8 @@ using WiSave.Portal.Session;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.AddPortalMessaging();
+
 builder.Services.AddPortalIdentity(builder.Configuration, builder.Environment);
 builder.Services.AddPortalAntiforgery(builder.Environment);
 builder.Services.AddPortalAuthRateLimiting();
@@ -16,7 +18,6 @@ builder.Services.AddPortalAuthorization();
 builder.Services.AddPortalSession(builder.Configuration);
 builder.Services.AddPortalGateway(builder.Configuration);
 builder.Services.AddPortalSignalR(builder.Configuration);
-builder.Services.AddPortalMessaging(builder.Configuration);
 builder.Services.AddPortalOpenApi();
 
 var corsOrigins = builder.Configuration.GetCorsOrigins();

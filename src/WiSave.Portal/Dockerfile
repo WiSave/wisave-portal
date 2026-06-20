@@ -5,11 +5,16 @@ WORKDIR /src
 ARG GITHUB_PACKAGES_USERNAME=JacobChwastek
 
 COPY NuGet.Config ./
+COPY Directory.Packages.props ./
 COPY src/WiSave.Portal/WiSave.Portal.csproj src/WiSave.Portal/
 COPY src/WiSave.Portal.Contracts/WiSave.Portal.Contracts.csproj src/WiSave.Portal.Contracts/
 COPY src/WiSave.Portal.Migrations/WiSave.Portal.Migrations.csproj src/WiSave.Portal.Migrations/
 RUN --mount=type=secret,id=github_packages_token \
-    export NuGetPackageSourceCredentials_github="Username=${GITHUB_PACKAGES_USERNAME};Password=$(cat /run/secrets/github_packages_token)" && \
+    dotnet nuget update source wisave \
+        --username "${GITHUB_PACKAGES_USERNAME}" \
+        --password "$(cat /run/secrets/github_packages_token)" \
+        --store-password-in-clear-text \
+        --configfile NuGet.Config && \
     dotnet restore src/WiSave.Portal/WiSave.Portal.csproj --configfile NuGet.Config
 
 # Copy everything and publish

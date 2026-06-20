@@ -12,6 +12,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="dbup-postgresql" Version="7.0.1" />
+    <PackageReference Include="dbup-postgresql" />
   </ItemGroup>
 </Project>
