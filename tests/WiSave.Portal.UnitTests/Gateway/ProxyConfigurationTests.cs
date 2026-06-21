@@ -3,7 +3,7 @@ using Xunit;
 
 namespace WiSave.Portal.UnitTests.Gateway;
 
-public sealed class StockProxyConfigurationTests
+public sealed class ProxyConfigurationTests
 {
     [Fact]
     public void Appsettings_StocksCluster_TargetsCurrentLocalStockPort()
@@ -32,6 +32,19 @@ public sealed class StockProxyConfigurationTests
             compose);
         Assert.DoesNotContain(
             "ReverseProxy__Clusters__stocks-cluster__Destinations__destination1__Address=http://wisave-stocks:8080",
+            compose);
+    }
+
+    [Fact]
+    public void DockerCompose_IncomesCluster_TargetsIncomesWebApiService()
+    {
+        var compose = File.ReadAllText(RepoPath("docker-compose.yml"));
+
+        Assert.Contains(
+            "ReverseProxy__Clusters__incomes-cluster__Destinations__destination1__Address=http://wisave-incomes-webapi:8080",
+            compose);
+        Assert.DoesNotContain(
+            "ReverseProxy__Clusters__incomes-cluster__Destinations__destination1__Address=http://wisave-incomes:8080",
             compose);
     }
 
