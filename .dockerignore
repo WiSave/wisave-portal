@@ -1,0 +1,13 @@
+.git
+.idea
+.vs
+bin
+obj
+**/bin
+**/obj
+TestResults
+*.user
+*.suo
+*.swp
+*.tmp
+script.sql

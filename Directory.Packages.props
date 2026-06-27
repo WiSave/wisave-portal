@@ -21,6 +21,8 @@
     <PackageVersion Include="NSubstitute" Version="5.3.0" />
     <PackageVersion Include="Scalar.AspNetCore" Version="2.14.4" />
     <PackageVersion Include="WiSave.Expenses.Contracts" Version="1.0.9" />
+    <PackageVersion Include="WiSave.Framework.Messaging.Wolverine" Version="1.0.5" />
+    <PackageVersion Include="WiSave.Incomes.Contracts" Version="1.0.3" />
     <PackageVersion Include="WolverineFx.RabbitMQ" Version="6.10.0" />
     <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.10.0" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />

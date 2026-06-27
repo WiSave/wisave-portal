@@ -8,12 +8,14 @@
   ],
   "vhosts": [
     { "name": "/" },
+    { "name": "portal" },
     { "name": "expenses" },
     { "name": "incomes" },
     { "name": "stocks" }
   ],
   "permissions": [
     { "user": "guest", "vhost": "/", "configure": ".*", "write": ".*", "read": ".*" },
+    { "user": "guest", "vhost": "portal", "configure": ".*", "write": ".*", "read": ".*" },
     { "user": "guest", "vhost": "expenses", "configure": ".*", "write": ".*", "read": ".*" },
     { "user": "guest", "vhost": "incomes", "configure": ".*", "write": ".*", "read": ".*" },
     { "user": "guest", "vhost": "stocks", "configure": ".*", "write": ".*", "read": ".*" }
