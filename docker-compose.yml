@@ -1,7 +1,18 @@
 services:
   portal:
-    image: wisave-portal:latest
-    pull_policy: never
+    profiles:
+      - portal
+    build:
+      context: .
+      dockerfile: src/WiSave.Portal/Dockerfile
+      additional_contexts:
+        wisave_expenses_contracts_package: ${HOME}/.nuget/packages/wisave.expenses.contracts
+        wisave_incomes_contracts_package: ${HOME}/.nuget/packages/wisave.incomes.contracts
+      args:
+        GITHUB_PACKAGES_USERNAME: ${GITHUB_PACKAGES_USERNAME:-JacobChwastek}
+        BUILD_CONFIGURATION: Debug
+      secrets:
+        - github_packages_token
     ports:
       - "5100:8080"
     depends_on:
@@ -21,7 +32,7 @@ services:
       - ReverseProxy__Clusters__stocks-cluster__Destinations__destination1__Address=http://wisave-stock-webapi:8080
       - ReverseProxy__Clusters__expenses-cluster__Destinations__destination1__Address=http://wisave-expenses-webapi:8080
       - RabbitMq__Host=rabbitmq
-      - RabbitMq__VirtualHost=expenses
+      - RabbitMq__VirtualHost=portal
       - RabbitMq__Username=guest
       - RabbitMq__Password=guest
     networks:
@@ -77,3 +88,7 @@ networks:
   wisave-net:
     external: true
     name: wisave-net
+
+secrets:
+  github_packages_token:
+    environment: GITHUB_PACKAGES_TOKEN

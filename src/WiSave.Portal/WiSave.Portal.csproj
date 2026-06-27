@@ -33,6 +33,8 @@
     <PackageReference Include="Scalar.AspNetCore" />
     <PackageReference Include="Yarp.ReverseProxy" />
     <PackageReference Include="WiSave.Expenses.Contracts" />
+    <PackageReference Include="WiSave.Framework.Messaging.Wolverine" />
+    <PackageReference Include="WiSave.Incomes.Contracts" />
     <PackageReference Include="WolverineFx.RabbitMQ" />
     <PackageReference Include="WolverineFx.RuntimeCompilation" />
   </ItemGroup>

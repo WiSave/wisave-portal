@@ -21,10 +21,11 @@ builder.Services.AddPortalSignalR(builder.Configuration);
 builder.Services.AddPortalOpenApi();
 
 var corsOrigins = builder.Configuration.GetCorsOrigins();
+
 builder.Services.AddPortalCors(corsOrigins);
 
 var app = builder.Build();
-// app.ApplyPortalMigrations();
+
 app.MapPortalApiDocs();
 app.UsePortalCors(corsOrigins);
 app.UsePortalForwarding();

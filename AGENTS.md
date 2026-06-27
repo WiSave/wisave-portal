@@ -40,10 +40,10 @@ Use the existing documented commands:
 ```bash
 dotnet build
 dotnet run --project src/WiSave.Portal
-dotnet publish src/WiSave.Portal/WiSave.Portal.csproj -c Release --os linux /t:PublishContainer
 dotnet test
 dotnet test --filter "FullyQualifiedName~WiSave.Portal.Tests.Auth.AuthEndpointsTests"
-docker compose up -d postgres redis
+docker compose up -d
+docker compose --profile portal up -d --build
 ./scripts/generate-dbup-script.sh <from-migration|0> <to-migration> <output-sql-path>
 ```
 

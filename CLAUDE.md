@@ -11,9 +11,6 @@ dotnet build
 # Run the portal (requires Postgres + Redis; see docker-compose for local infra)
 dotnet run --project src/WiSave.Portal
 
-# Publish the portal container image consumed by docker-compose
-dotnet publish src/WiSave.Portal/WiSave.Portal.csproj -c Release --os linux /t:PublishContainer
-
 # Run all tests (uses in-memory database, no external deps needed)
 dotnet test
 
@@ -23,8 +20,11 @@ dotnet test --filter "FullyQualifiedName~WiSave.Portal.Tests.Auth.AuthEndpointsT
 # Run tests in a specific class
 dotnet test --filter "FullyQualifiedName~WiSave.Portal.Tests.Auth.AuthEndpointsTests"
 
-# Start local infrastructure (Postgres + Redis)
-docker compose up -d postgres redis
+# Start local infrastructure only; the portal container is behind an explicit profile.
+docker compose up -d
+
+# Start local infrastructure plus the Dockerfile-built portal image
+docker compose --profile portal up -d --build
 
 # Generate a DbUp migration SQL from EF Core migrations
 ./scripts/generate-dbup-script.sh <from-migration|0> <to-migration> <output-sql-path>
