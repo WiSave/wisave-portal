@@ -38,6 +38,11 @@ public static class Extensions
                 .AutoProvision();
 
             options.ListenToEventOnNamedBroker<CategoryCreated, NotificationsEventHandler>(IncomesBroker);
+            options.ListenToEventOnNamedBroker<CategoryUpdated, NotificationsEventHandler>(IncomesBroker);
+            options.ListenToEventOnNamedBroker<CategoryDeleted, NotificationsEventHandler>(IncomesBroker);
+            options.ListenToEventOnNamedBroker<SubcategoryCreated, NotificationsEventHandler>(IncomesBroker);
+            options.ListenToEventOnNamedBroker<SubcategoryUpdated, NotificationsEventHandler>(IncomesBroker);
+            options.ListenToEventOnNamedBroker<SubcategoryDeleted, NotificationsEventHandler>(IncomesBroker);
 
             options.AddNamedRabbitMqBroker(ExpensesBroker, rabbit =>
                 {

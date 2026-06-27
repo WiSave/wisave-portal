@@ -22,11 +22,46 @@ public class NotificationsEventHandler(IHubContext<NotificationsHub> hub)
 
     public Task Handle(CategoryCreated message, CancellationToken cancellationToken = default)
     {
+        return PushIncome(RealtimeEventType.CategoryCreated, message.UserId, message.Id, message, cancellationToken);
+    }
+
+    public Task Handle(CategoryUpdated message, CancellationToken cancellationToken = default)
+    {
+        return PushIncome(RealtimeEventType.CategoryUpdated, message.UserId, message.Id, message, cancellationToken);
+    }
+
+    public Task Handle(CategoryDeleted message, CancellationToken cancellationToken = default)
+    {
+        return PushIncome(RealtimeEventType.CategoryDeleted, message.UserId, message.Id, message, cancellationToken);
+    }
+
+    public Task Handle(SubcategoryCreated message, CancellationToken cancellationToken = default)
+    {
+        return PushIncome(RealtimeEventType.SubcategoryCreated, message.UserId, message.Id, message, cancellationToken);
+    }
+
+    public Task Handle(SubcategoryUpdated message, CancellationToken cancellationToken = default)
+    {
+        return PushIncome(RealtimeEventType.SubcategoryUpdated, message.UserId, message.Id, message, cancellationToken);
+    }
+
+    public Task Handle(SubcategoryDeleted message, CancellationToken cancellationToken = default)
+    {
+        return PushIncome(RealtimeEventType.SubcategoryDeleted, message.UserId, message.Id, message, cancellationToken);
+    }
+
+    private Task PushIncome(
+        string eventType,
+        Guid userId,
+        Guid entityId,
+        object payload,
+        CancellationToken cancellationToken)
+    {
         return Push(
-            RealtimeEventType.CategoryCreated,
-            message.UserId.ToString(),
-            message.Id.ToString(),
-            message,
+            eventType,
+            userId.ToString(),
+            entityId.ToString(),
+            payload,
             cancellationToken,
             domain: "incomes");
     }
