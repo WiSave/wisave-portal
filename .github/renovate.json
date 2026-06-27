@@ -1,0 +1,17 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "dependencyDashboard": true,
+  "enabledManagers": ["nuget"],
+  "labels": ["dependencies"],
+  "timezone": "Europe/Warsaw",
+  "packageRules": [
+    {
+      "description": "Group WiSave internal NuGet package updates",
+      "matchManagers": ["nuget"],
+      "matchPackageNames": ["/^WiSave\\./"],
+      "groupName": "WiSave NuGet packages",
+      "groupSlug": "wisave-nuget-packages"
+    }
+  ]
+}
