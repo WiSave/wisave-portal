@@ -1,0 +1,51 @@
+name: Renovate NuGet Updates
+
+on:
+  push:
+    branches:
+      - master
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: renovate-nuget-updates
+  cancel-in-progress: true
+
+jobs:
+  renovate:
+    name: Check NuGet updates
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Validate Renovate token
+        shell: bash
+        env:
+          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+        run: |
+          if [ -z "${RENOVATE_TOKEN}" ]; then
+            echo "::error title=Missing RENOVATE_TOKEN::Create a RENOVATE_TOKEN secret with repository write access and GitHub Packages read access."
+            exit 1
+          fi
+
+      - name: Run Renovate
+        env:
+          LOG_LEVEL: info
+          RENOVATE_CONFIG_FILE: .github/renovate.json
+          RENOVATE_ONBOARDING: 'false'
+          RENOVATE_PLATFORM: github
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+          RENOVATE_X_GITHUB_HOST_RULES: 'true'
+        run: npx --yes renovate
