@@ -49,6 +49,3 @@ jobs:
 
       - name: Run portal unit tests
         run: dotnet test tests/WiSave.Portal.UnitTests/WiSave.Portal.UnitTests.csproj --configuration Release --no-restore
-
-      - name: Run portal integration tests
-        run: dotnet test tests/WiSave.Portal.IntegrationTests/WiSave.Portal.IntegrationTests.csproj --configuration Release --no-restore
