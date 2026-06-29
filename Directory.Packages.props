@@ -23,8 +23,8 @@
     <PackageVersion Include="WiSave.Expenses.Contracts" Version="1.0.9" />
     <PackageVersion Include="WiSave.Framework.Messaging.Wolverine" Version="1.0.5" />
     <PackageVersion Include="WiSave.Incomes.Contracts" Version="1.0.5" />
-    <PackageVersion Include="WolverineFx.RabbitMQ" Version="6.10.0" />
-    <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.10.0" />
+    <PackageVersion Include="WolverineFx.RabbitMQ" Version="6.16.0" />
+    <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.16.0" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
     <PackageVersion Include="Yarp.ReverseProxy" Version="2.3.0" />
